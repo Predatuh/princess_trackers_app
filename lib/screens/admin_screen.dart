@@ -17,10 +17,10 @@ class AdminTab extends StatefulWidget {
 
 class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
   TabController? _tabController;
-  bool _initialized = false;
+  bool _loadsInitiated = false;
 
   // Colors tab
-  Map<String, String> _editColors = {};
+  final Map<String, String> _editColors = {};
   bool _savingColors = false;
 
   // Names tab
@@ -45,19 +45,29 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!_initialized) {
-      _initialized = true;
-      final state = context.read<AppState>();
-      final isMainAdmin = state.user?.role == 'admin';
+    final state = context.read<AppState>();
+    final role = state.user?.role;
+
+    // Create tab controller lazily once we know the user role
+    if (_tabController == null && role != null) {
+      final isMainAdmin = role == 'admin';
       _tabController = TabController(length: isMainAdmin ? 4 : 3, vsync: this);
-      _editColors = Map.from(state.statusColors);
-      for (final key in state.columnOrder) {
-        _nameControllers[key] = TextEditingController(
-          text: state.getStatusName(key),
-        );
-      }
+    }
+
+    // Sync colors and name controllers — putIfAbsent preserves user edits
+    for (final key in state.columnOrder) {
+      _editColors.putIfAbsent(key, () => state.statusColors[key] ?? '#888888');
+      _nameControllers.putIfAbsent(
+        key,
+        () => TextEditingController(text: state.getStatusName(key)),
+      );
+    }
+
+    // Initiate API loads only once after user is known
+    if (!_loadsInitiated && role != null) {
+      _loadsInitiated = true;
       _loadAreas();
-      if (isMainAdmin) _loadUsers();
+      if (role == 'admin') _loadUsers();
     }
   }
 
@@ -141,6 +151,15 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
     setState(() {
       final idx = _areas.indexWhere((a) => a['id'] == areaId);
       if (idx >= 0) _areas[idx] = {..._areas[idx], 'label_color': hexColor};
+    });
+  }
+
+  Future<void> _updateZone(int areaId, String? zone) async {
+    await context.read<AppState>().api.updateSiteArea(areaId, {'zone': zone ?? ''});
+    if (!mounted) return;
+    setState(() {
+      final idx = _areas.indexWhere((a) => a['id'] == areaId);
+      if (idx >= 0) _areas[idx] = {..._areas[idx], 'zone': zone};
     });
   }
 
@@ -492,69 +511,126 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
           final name = area['name']?.toString() ?? 'Area $id';
           final labelColor = area['label_color']?.toString() ?? '#FFFFFF';
           final color = _hexColor(labelColor);
+          final currentZone = area['zone']?.toString();
           return Container(
             margin: const EdgeInsets.only(bottom: 10),
             child: GlassCard(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              child: Row(
+              padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      color: color,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                            color: color.withValues(alpha: 0.6),
-                            blurRadius: 6),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(name,
-                        style: AppTheme.font(
-                            size: 14, weight: FontWeight.w600)),
-                  ),
-                  // Color picker swatch
-                  GestureDetector(
-                    onTap: () async {
-                      final picked = await _pickColor(labelColor);
-                      if (picked != null) await _updateLabelColor(id, picked);
-                    },
-                    child: Container(
-                      width: 28,
-                      height: 28,
-                      margin: const EdgeInsets.only(right: 8),
-                      decoration: BoxDecoration(
-                        color: color,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                            color: const Color(0x40FFFFFF), width: 1.5),
-                        boxShadow: [
-                          BoxShadow(
-                              color: color.withValues(alpha: 0.4),
-                              blurRadius: 6),
-                        ],
+                  Row(
+                    children: [
+                      Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: color,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                                color: color.withValues(alpha: 0.6),
+                                blurRadius: 6),
+                          ],
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(name,
+                            style: AppTheme.font(
+                                size: 14, weight: FontWeight.w600)),
+                      ),
+                      // Color picker swatch
+                      GestureDetector(
+                        onTap: () async {
+                          final picked = await _pickColor(labelColor);
+                          if (picked != null) await _updateLabelColor(id, picked);
+                        },
+                        child: Container(
+                          width: 26,
+                          height: 26,
+                          margin: const EdgeInsets.only(right: 6),
+                          decoration: BoxDecoration(
+                            color: color,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                                color: const Color(0x40FFFFFF), width: 1.5),
+                            boxShadow: [
+                              BoxShadow(
+                                  color: color.withValues(alpha: 0.4),
+                                  blurRadius: 6),
+                            ],
+                          ),
+                        ),
+                      ),
+                      // Delete button
+                      GestureDetector(
+                        onTap: () => _confirmDelete(id, name),
+                        child: Padding(
+                          padding: const EdgeInsets.all(4),
+                          child: Icon(Icons.delete_outline_rounded,
+                              color: C.pink, size: 20),
+                        ),
+                      ),
+                    ],
                   ),
-                  // Delete button
-                  GestureDetector(
-                    onTap: () => _confirmDelete(id, name),
-                    child: Padding(
-                      padding: const EdgeInsets.all(4),
-                      child: Icon(Icons.delete_outline_rounded,
-                          color: C.pink, size: 20),
-                    ),
+                  const SizedBox(height: 8),
+                  // Zone assignment row
+                  Row(
+                    children: [
+                      Icon(Icons.layers_rounded, size: 14, color: C.textDim),
+                      const SizedBox(width: 6),
+                      Text('Zone:',
+                          style: AppTheme.font(size: 12, color: C.textDim)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              _zoneChip(null, currentZone, id),
+                              for (int z = 1; z <= 6; z++)
+                                _zoneChip('Zone $z', currentZone, id),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _zoneChip(String? zone, String? currentZone, int areaId) {
+    final label = zone ?? 'None';
+    final active = zone == currentZone;
+    return GestureDetector(
+      onTap: () => _updateZone(areaId, zone),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        margin: const EdgeInsets.only(right: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: active ? C.cyan.withValues(alpha: 0.2) : const Color(0x0AFFFFFF),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: active ? C.cyan : const Color(0x18FFFFFF),
+            width: active ? 1.5 : 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: AppTheme.font(
+            size: 11,
+            color: active ? C.cyan : C.textDim,
+            weight: active ? FontWeight.w700 : FontWeight.w400,
+          ),
+        ),
       ),
     );
   }

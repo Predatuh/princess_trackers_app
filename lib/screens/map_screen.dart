@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -22,6 +23,9 @@ class _MapTabState extends State<MapTab> {
   List<dynamic> _statusData = [];
   String? _mapImageUrl;
   double _imgAspect = 1.0;
+  String? _selectedZone;   // null = show all zones
+  double _mapW = 0;
+  double _mapH = 0;
 
   final TransformationController _transformCtrl = TransformationController();
 
@@ -143,6 +147,13 @@ class _MapTabState extends State<MapTab> {
       if (areaId != null) statusLookup[areaId] = s;
     }
 
+    // Filter areas by selected zone
+    final visibleAreas = _selectedZone == null
+        ? _areas
+        : _areas
+            .where((a) => a['zone']?.toString() == _selectedZone)
+            .toList();
+
     return Stack(
       children: [
         Column(
@@ -153,6 +164,12 @@ class _MapTabState extends State<MapTab> {
                 builder: (context, constraints) {
                   final w = constraints.maxWidth;
                   final h = w / _imgAspect;
+
+                  // Keep track of map dimensions for zone zoom
+                  if (_mapW != w || _mapH != h) {
+                    _mapW = w;
+                    _mapH = h;
+                  }
 
                   return InteractiveViewer(
                     transformationController: _transformCtrl,
@@ -193,7 +210,7 @@ class _MapTabState extends State<MapTab> {
                               ),
                             ),
                           ),
-                          for (final area in _areas)
+                          for (final area in visibleAreas)
                             if (_toDouble(area['bbox_x']) != null &&
                                 _toDouble(area['bbox_y']) != null &&
                                 (_toDouble(area['bbox_w']) ?? 0) <= 50 &&
@@ -364,31 +381,101 @@ class _MapTabState extends State<MapTab> {
     final tracker = state.currentTracker;
     if (tracker == null) return const SizedBox.shrink();
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: C.surface.withValues(alpha: 0.8),
-        border: const Border(
-            bottom: BorderSide(color: Color(0x14FFFFFF))),
-      ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            _legendChip(C.green, 'Complete'),
-            const SizedBox(width: 10),
-            _legendChip(Colors.orange, 'In Progress'),
-            const SizedBox(width: 10),
-            _legendChip(C.pink, 'Not Started'),
-            const SizedBox(width: 10),
-            ...tracker.statusTypes.map((st) {
-              return Padding(
-                padding: const EdgeInsets.only(right: 10),
-                child: _legendChip(
-                    state.getStatusColor(st), state.getStatusName(st)),
-              );
-            }),
-          ],
+    final zones = _zones;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Status legend
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: C.surface.withValues(alpha: 0.8),
+            border: const Border(
+                bottom: BorderSide(color: Color(0x14FFFFFF))),
+          ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _legendChip(C.green, 'Complete'),
+                const SizedBox(width: 10),
+                _legendChip(Colors.orange, 'In Progress'),
+                const SizedBox(width: 10),
+                _legendChip(C.pink, 'Not Started'),
+                const SizedBox(width: 10),
+                ...tracker.statusTypes.map((st) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: _legendChip(
+                        state.getStatusColor(st), state.getStatusName(st)),
+                  );
+                }),
+              ],
+            ),
+          ),
+        ),
+        // Zone filter bar (only if zones are configured)
+        if (zones.isNotEmpty)
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: C.bg.withValues(alpha: 0.9),
+              border: const Border(
+                  bottom: BorderSide(color: Color(0x14FFFFFF))),
+            ),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  Icon(Icons.layers_rounded,
+                      size: 14, color: C.textDim),
+                  const SizedBox(width: 6),
+                  _zoneFilterChip(null),
+                  ...zones.map((z) => _zoneFilterChip(z)),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _zoneFilterChip(String? zone) {
+    final label = zone ?? 'All';
+    final active = _selectedZone == zone;
+    return GestureDetector(
+      onTap: () => _onZoneTap(zone),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        margin: const EdgeInsets.only(right: 6),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        decoration: BoxDecoration(
+          color: active
+              ? C.cyan.withValues(alpha: 0.2)
+              : const Color(0x0AFFFFFF),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: active ? C.cyan : const Color(0x20FFFFFF),
+            width: active ? 1.5 : 1,
+          ),
+          boxShadow: active
+              ? [
+                  BoxShadow(
+                      color: C.cyan.withValues(alpha: 0.25),
+                      blurRadius: 8)
+                ]
+              : [],
+        ),
+        child: Text(
+          label,
+          style: AppTheme.font(
+            size: 11,
+            color: active ? C.cyan : C.textSub,
+            weight: active ? FontWeight.w700 : FontWeight.w500,
+          ),
         ),
       ),
     );
@@ -424,6 +511,59 @@ class _MapTabState extends State<MapTab> {
     if (block != null) {
       Navigator.pushNamed(context, '/block', arguments: block);
     }
+  }
+
+  // ── Zone helpers ─────────────────────────────────────
+
+  List<String> get _zones {
+    final seen = <String>{};
+    for (final a in _areas) {
+      final z = a['zone']?.toString();
+      if (z != null && z.isNotEmpty) seen.add(z);
+    }
+    final list = seen.toList()..sort();
+    return list;
+  }
+
+  void _onZoneTap(String? zone) {
+    setState(() => _selectedZone = zone);
+    if (zone == null) {
+      _transformCtrl.value = Matrix4.identity();
+      return;
+    }
+    final zoneAreas = _areas
+        .where((a) => a['zone']?.toString() == zone)
+        .toList();
+    _zoomToZone(zoneAreas);
+  }
+
+  void _zoomToZone(List<dynamic> zoneAreas) {
+    if (zoneAreas.isEmpty || _mapW <= 0 || _mapH <= 0) return;
+    double minX = double.infinity, maxX = -double.infinity;
+    double minY = double.infinity, maxY = -double.infinity;
+    for (final area in zoneAreas) {
+      final x = (_toDouble(area['bbox_x']) ?? 0) / 100 * _mapW;
+      final y = (_toDouble(area['bbox_y']) ?? 0) / 100 * _mapH;
+      final w = (_toDouble(area['bbox_w']) ?? 2) / 100 * _mapW;
+      final h = (_toDouble(area['bbox_h']) ?? 2) / 100 * _mapH;
+      minX = math.min(minX, x);
+      maxX = math.max(maxX, x + w);
+      minY = math.min(minY, y);
+      maxY = math.max(maxY, y + h);
+    }
+    const padding = 48.0;
+    final regionW = (maxX - minX) + padding * 2;
+    final regionH = (maxY - minY) + padding * 2;
+    final scaleX = _mapW / regionW;
+    final scaleY = _mapH / regionH;
+    final scale = math.min(scaleX, scaleY).clamp(0.3, 6.0);
+    final imgCX = (minX + maxX) / 2;
+    final imgCY = (minY + maxY) / 2;
+    final tx = _mapW / 2 - scale * imgCX;
+    final ty = _mapH / 2 - scale * imgCY;
+    _transformCtrl.value = Matrix4.identity()
+      ..translate(tx, ty)
+      ..scale(scale, scale);
   }
 
   double? _toDouble(dynamic v) {
