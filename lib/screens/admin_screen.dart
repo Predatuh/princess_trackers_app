@@ -176,6 +176,115 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
     if (mounted) await _loadUsers();
   }
 
+  void _showCreateUserDialog() {
+    final nameCtrl = TextEditingController();
+    final pinCtrl = TextEditingController();
+    String? errorText;
+
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: C.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Color(0x18FFFFFF)),
+          ),
+          title: Text('Create User',
+              style: AppTheme.font(size: 16, weight: FontWeight.w700)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                style: AppTheme.font(size: 14),
+                decoration: InputDecoration(
+                  labelText: 'Name',
+                  labelStyle: AppTheme.font(size: 13, color: C.textDim),
+                  filled: true,
+                  fillColor: const Color(0x10FFFFFF),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Color(0x18FFFFFF)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Color(0x18FFFFFF)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: C.cyan.withValues(alpha: 0.5)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: pinCtrl,
+                style: AppTheme.font(size: 14),
+                keyboardType: TextInputType.number,
+                maxLength: 4,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: '4-digit PIN',
+                  labelStyle: AppTheme.font(size: 13, color: C.textDim),
+                  counterText: '',
+                  filled: true,
+                  fillColor: const Color(0x10FFFFFF),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Color(0x18FFFFFF)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Color(0x18FFFFFF)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: C.cyan.withValues(alpha: 0.5)),
+                  ),
+                ),
+              ),
+              if (errorText != null) ...[
+                const SizedBox(height: 8),
+                Text(errorText!, style: AppTheme.font(size: 12, color: C.pink)),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('Cancel', style: AppTheme.font(color: C.textDim)),
+            ),
+            TextButton(
+              onPressed: () async {
+                final name = nameCtrl.text.trim();
+                final pin = pinCtrl.text.trim();
+                if (name.isEmpty) {
+                  setDialogState(() => errorText = 'Name is required');
+                  return;
+                }
+                if (pin.length != 4 || int.tryParse(pin) == null) {
+                  setDialogState(() => errorText = 'PIN must be 4 digits');
+                  return;
+                }
+                try {
+                  await context.read<AppState>().api.createUser(name, pin);
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  _showSnack('User "$name" created!');
+                  await _loadUsers();
+                } on Exception catch (e) {
+                  setDialogState(() => errorText = e.toString().replaceFirst('Exception: ', ''));
+                }
+              },
+              child: Text('CREATE',
+                  style: AppTheme.font(color: C.cyan, weight: FontWeight.w700)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ── Helpers ─────────────────────────────────────────
 
   void _showSnack(String msg) {
@@ -706,88 +815,113 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
       'admin': 'Admin',
     };
 
-    return RefreshIndicator(
-      color: C.cyan,
-      onRefresh: _loadUsers,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _users.length,
-        itemBuilder: (context, i) {
-          final user = _users[i] as Map;
-          final userId = user['id'] as int? ?? 0;
-          final name = user['name']?.toString() ?? 'User $userId';
-          final currentRole = user['role']?.toString() ?? 'none';
-          final safeRole =
-              roleOptions.contains(currentRole) ? currentRole : 'none';
+    return Stack(
+      children: [
+        RefreshIndicator(
+          color: C.cyan,
+          onRefresh: _loadUsers,
+          child: ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: _users.length,
+            itemBuilder: (context, i) {
+              final user = _users[i] as Map;
+              final userId = user['id'] as int? ?? 0;
+              final name = user['name']?.toString() ?? 'User $userId';
+              final currentRole = user['role']?.toString() ?? 'none';
+              final safeRole =
+                  roleOptions.contains(currentRole) ? currentRole : 'none';
 
-          return Container(
-            margin: const EdgeInsets.only(bottom: 10),
-            child: GlassCard(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Row(
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: C.purple.withValues(alpha: 0.2),
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                          color: C.purple.withValues(alpha: 0.3)),
-                    ),
-                    child: Center(
-                      child: Text(
-                        name.isNotEmpty ? name[0].toUpperCase() : '?',
-                        style: AppTheme.font(
-                            size: 16,
-                            weight: FontWeight.w700,
-                            color: C.purple),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(name,
-                            style: AppTheme.font(
-                                size: 14, weight: FontWeight.w600)),
-                        Text(
-                          roleLabels[currentRole] ?? currentRole,
-                          style:
-                              AppTheme.font(size: 11, color: C.textDim),
+              return Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                child: GlassCard(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: C.purple.withValues(alpha: 0.2),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                              color: C.purple.withValues(alpha: 0.3)),
                         ),
-                      ],
-                    ),
+                        child: Center(
+                          child: Text(
+                            name.isNotEmpty ? name[0].toUpperCase() : '?',
+                            style: AppTheme.font(
+                                size: 16,
+                                weight: FontWeight.w700,
+                                color: C.purple),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(name,
+                                style: AppTheme.font(
+                                    size: 14, weight: FontWeight.w600)),
+                            Text(
+                              roleLabels[currentRole] ?? currentRole,
+                              style:
+                                  AppTheme.font(size: 11, color: C.textDim),
+                            ),
+                          ],
+                        ),
+                      ),
+                      DropdownButton<String>(
+                        value: safeRole,
+                        dropdownColor: C.surface,
+                        style: AppTheme.font(size: 12),
+                        underline: const SizedBox.shrink(),
+                        icon: Icon(Icons.expand_more_rounded,
+                            color: C.cyan.withValues(alpha: 0.7), size: 18),
+                        items: roleOptions
+                            .map((r) => DropdownMenuItem(
+                                  value: r,
+                                  child: Text(roleLabels[r] ?? r,
+                                      style: AppTheme.font(size: 12)),
+                                ))
+                            .toList(),
+                        onChanged: (r) {
+                          if (r != null && r != currentRole) {
+                            _setUserRole(userId, r);
+                          }
+                        },
+                      ),
+                    ],
                   ),
-                  DropdownButton<String>(
-                    value: safeRole,
-                    dropdownColor: C.surface,
-                    style: AppTheme.font(size: 12),
-                    underline: const SizedBox.shrink(),
-                    icon: Icon(Icons.expand_more_rounded,
-                        color: C.cyan.withValues(alpha: 0.7), size: 18),
-                    items: roleOptions
-                        .map((r) => DropdownMenuItem(
-                              value: r,
-                              child: Text(roleLabels[r] ?? r,
-                                  style: AppTheme.font(size: 12)),
-                            ))
-                        .toList(),
-                    onChanged: (r) {
-                      if (r != null && r != currentRole) {
-                        _setUserRole(userId, r);
-                      }
-                    },
-                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        // Floating add user button
+        Positioned(
+          right: 16,
+          bottom: 16,
+          child: GestureDetector(
+            onTap: _showCreateUserDialog,
+            child: Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: C.cyan.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+                border: Border.all(color: C.cyan, width: 1.5),
+                boxShadow: [
+                  BoxShadow(color: C.cyan.withValues(alpha: 0.3), blurRadius: 12),
                 ],
               ),
+              child: const Icon(Icons.person_add_rounded, color: C.cyan, size: 24),
             ),
-          );
-        },
-      ),
+          ),
+        ),
+      ],
     );
   }
 }

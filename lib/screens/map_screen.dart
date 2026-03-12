@@ -26,6 +26,8 @@ class _MapTabState extends State<MapTab> {
   String? _selectedZone;   // null = show all zones
   double _mapW = 0;
   double _mapH = 0;
+  bool _adminDeleteMode = false;
+  Map<String, dynamic>? _lastDeleted; // ignore: unused_field - kept for undo reference
 
   final TransformationController _transformCtrl = TransformationController();
 
@@ -247,11 +249,80 @@ class _MapTabState extends State<MapTab> {
                 onTap: () =>
                     _transformCtrl.value = Matrix4.identity(),
               ),
+              // Admin delete mode toggle
+              if (_isAdmin) ...[
+                const SizedBox(height: 8),
+                GestureDetector(
+                  onTap: () => setState(() => _adminDeleteMode = !_adminDeleteMode),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: _adminDeleteMode
+                              ? C.pink.withValues(alpha: 0.3)
+                              : C.surface.withValues(alpha: 0.8),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _adminDeleteMode ? C.pink : const Color(0x18FFFFFF),
+                            width: _adminDeleteMode ? 2 : 1,
+                          ),
+                          boxShadow: _adminDeleteMode
+                              ? [BoxShadow(color: C.pink.withValues(alpha: 0.4), blurRadius: 10)]
+                              : [],
+                        ),
+                        child: Icon(
+                          _adminDeleteMode ? Icons.delete_forever_rounded : Icons.delete_outline_rounded,
+                          color: _adminDeleteMode ? C.pink : C.cyan,
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
+        // Delete mode indicator
+        if (_adminDeleteMode)
+          Positioned(
+            left: 12,
+            top: 8,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: C.pink.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: C.pink.withValues(alpha: 0.5)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.warning_rounded, color: C.pink, size: 14),
+                      const SizedBox(width: 6),
+                      Text('DELETE MODE', style: AppTheme.font(size: 11, color: C.pink, weight: FontWeight.w700)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
       ],
     );
+  }
+
+  bool get _isAdmin {
+    final role = context.read<AppState>().user?.role;
+    return role == 'admin' || role == 'assistant_admin';
   }
 
   Widget _floatingGlassButton({
@@ -335,7 +406,11 @@ class _MapTabState extends State<MapTab> {
       height: mapH * bboxH / 100,
       child: GestureDetector(
         onTap: () {
-          if (status != null) _onAreaTap(status);
+          if (_adminDeleteMode) {
+            _instantDelete(area);
+          } else if (status != null) {
+            _onAreaTap(status);
+          }
         },
         child: Container(
           decoration: BoxDecoration(
@@ -510,6 +585,61 @@ class _MapTabState extends State<MapTab> {
     final block = state.blocks.where((b) => b.id == pbId).firstOrNull;
     if (block != null) {
       Navigator.pushNamed(context, '/block', arguments: block);
+    }
+  }
+
+  Future<void> _instantDelete(dynamic area) async {
+    final areaId = _toInt(area['id']);
+    if (areaId == null) return;
+    final areaName = area['name']?.toString() ?? 'Area';
+    final areaData = Map<String, dynamic>.from(area as Map);
+
+    // Remove from local list immediately
+    setState(() {
+      _areas.removeWhere((a) => _toInt(a['id']) == areaId);
+      _lastDeleted = areaData;
+    });
+
+    // Delete from server
+    final api = context.read<AppState>().api;
+    final ok = await api.deleteSiteArea(areaId);
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(
+        ok ? 'Deleted "$areaName"' : 'Failed to delete "$areaName"',
+        style: AppTheme.font(size: 14),
+      ),
+      backgroundColor: C.surface,
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 5),
+      action: ok
+          ? SnackBarAction(
+              label: 'UNDO',
+              textColor: C.cyan,
+              onPressed: () => _undoDelete(areaData),
+            )
+          : null,
+    ));
+
+    // If delete failed on server, restore locally
+    if (!ok && mounted) {
+      setState(() => _areas.add(areaData));
+    }
+  }
+
+  Future<void> _undoDelete(Map<String, dynamic> areaData) async {
+    final api = context.read<AppState>().api;
+    // Re-create the area on the server with original data
+    final restored = await api.createSiteArea(areaData);
+    if (restored != null && mounted) {
+      // Reload from server to get fresh IDs and data
+      await _loadMap();
+    } else if (mounted) {
+      // Optimistic add if server call failed — then refresh
+      setState(() => _areas.add(areaData));
     }
   }
 

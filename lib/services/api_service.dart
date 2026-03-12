@@ -291,6 +291,19 @@ class ApiService {
     return res.statusCode == 200;
   }
 
+  Future<Map<String, dynamic>?> createSiteArea(Map<String, dynamic> data) async {
+    final res = await _client.post(
+      Uri.parse('$baseUrl/api/map/area'),
+      headers: _headers,
+      body: jsonEncode(data),
+    );
+    if (res.statusCode == 201) {
+      final j = jsonDecode(res.body);
+      return j['data'] as Map<String, dynamic>?;
+    }
+    return null;
+  }
+
   Future<List<dynamic>> getUsers() async {
     final res = await _client.get(
       Uri.parse('$baseUrl/api/auth/users'),
@@ -309,5 +322,22 @@ class ApiService {
       body: jsonEncode({'role': role}),
     );
     return res.statusCode == 200;
+  }
+
+  Future<Map<String, dynamic>?> createUser(String name, String pin) async {
+    final res = await _client.post(
+      Uri.parse('$baseUrl/api/auth/register'),
+      headers: _headers,
+      body: jsonEncode({'name': name, 'pin': pin}),
+    );
+    if (res.statusCode == 201) {
+      final j = jsonDecode(res.body);
+      return j['user'] as Map<String, dynamic>?;
+    }
+    if (res.statusCode == 409 || res.statusCode == 400) {
+      final j = jsonDecode(res.body);
+      throw Exception(j['error'] ?? 'Failed to create user');
+    }
+    return null;
   }
 }

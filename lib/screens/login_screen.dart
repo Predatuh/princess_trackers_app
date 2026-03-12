@@ -69,7 +69,7 @@ class _LoginScreenState extends State<LoginScreen>
 
     _sparkCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 900),
+      duration: const Duration(milliseconds: 2800),
     )..repeat();
 
     _chargeCtrl = AnimationController(
@@ -360,8 +360,21 @@ class _LoginScreenState extends State<LoginScreen>
                     _explodeCtrl.value, logoSize / 2),
               ),
             ),
-          // Logo with pulsing glow during charge
-          _buildLogo(logoSize, chargeT),
+          // Logo — scales up then shatters away during explosion
+          if (_explodeCtrl.value < 0.35)
+            Transform.scale(
+              scale: _explodeCtrl.value > 0
+                  ? 1.0 + _explodeCtrl.value * 3.0 // swell up before shattering
+                  : 1.0,
+              child: Opacity(
+                opacity: _explodeCtrl.value > 0.15
+                    ? (1.0 - ((_explodeCtrl.value - 0.15) / 0.2)).clamp(0.0, 1.0)
+                    : 1.0,
+                child: _buildLogo(logoSize, chargeT),
+              ),
+            )
+          else if (_explodeCtrl.value == 0)
+            _buildLogo(logoSize, chargeT),
         ],
       ),
     );
@@ -448,11 +461,11 @@ class _LightningPainter extends CustomPainter {
 
     for (int i = 0; i < boltCount; i++) {
       final baseAngle = (i / boltCount) * 2 * math.pi;
-      final wobble = math.sin(t * 2 * math.pi * 2.3 + i * 2.1) * 0.4;
+      final wobble = math.sin(t * 2 * math.pi * 0.9 + i * 2.1) * 0.4;
       final angle = baseAngle + wobble;
 
       // Per-bolt flicker
-      final flash = (math.sin(t * 2 * math.pi * (3.0 + i * 0.4) + i * 3.2) + 1) / 2;
+      final flash = (math.sin(t * 2 * math.pi * (1.2 + i * 0.15) + i * 3.2) + 1) / 2;
       if (flash < 0.2) continue;
       final opacity = ((flash - 0.2) / 0.8).clamp(0.0, 1.0) * (0.7 + chargeT * 0.3);
       final maxLen = (20.0 + 35.0 * flash) * intensity;
@@ -522,12 +535,12 @@ class _LightningPainter extends CustomPainter {
     // Orbiting energy particles (more during charge)
     final particleCount = (8 + chargeT * 12).round();
     for (int i = 0; i < particleCount; i++) {
-      final angle = (i / particleCount) * 2 * math.pi + t * 2 * math.pi * 0.8;
-      final orbitR = logoRadius + 14 + math.sin(t * 4.5 + i * 1.3) * 12;
+      final angle = (i / particleCount) * 2 * math.pi + t * 2 * math.pi * 0.4;
+      final orbitR = logoRadius + 14 + math.sin(t * 2.5 + i * 1.3) * 12;
       final x = center.dx + orbitR * math.cos(angle);
       final y = center.dy + orbitR * math.sin(angle);
-      final pOpacity = (0.3 + 0.7 * math.sin(t * 5 + i)).clamp(0.0, 1.0);
-      final pSize = 1.5 + chargeT * 1.5 + math.sin(t * 6 + i) * 0.5;
+      final pOpacity = (0.3 + 0.7 * math.sin(t * 2.8 + i)).clamp(0.0, 1.0);
+      final pSize = 1.5 + chargeT * 1.5 + math.sin(t * 3.2 + i) * 0.5;
       final pColor = i % 3 == 0 ? C.purple : (i % 3 == 1 ? C.cyan : C.gold);
       canvas.drawCircle(
         Offset(x, y),
@@ -536,6 +549,39 @@ class _LightningPainter extends CustomPainter {
           ..color = pColor.withValues(alpha: pOpacity)
           ..style = PaintingStyle.fill
           ..maskFilter = MaskFilter.blur(BlurStyle.normal, pSize),
+      );
+    }
+
+    // Growing spark embers — tiny at start, grow bigger as login progresses
+    final sparkCount = (6 + chargeT * 18).round();
+    for (int i = 0; i < sparkCount; i++) {
+      final seed = i * 7.13 + 3.7;
+      final sparkAngle = (i / sparkCount) * 2 * math.pi + t * math.pi * 0.6 + math.sin(seed) * 0.5;
+      final drift = logoRadius + 8 + (10 + chargeT * 35) * math.sin(t * 1.5 + seed);
+      final sx = center.dx + drift * math.cos(sparkAngle);
+      final sy = center.dy + drift * math.sin(sparkAngle);
+      // Size grows from tiny dot to big ember as chargeT increases
+      final baseSize = 0.8 + chargeT * 4.0;
+      final sparkSize = baseSize + math.sin(t * 3.5 + seed) * baseSize * 0.3;
+      final sOpacity = (0.4 + chargeT * 0.5 + math.sin(t * 2.2 + i) * 0.2).clamp(0.0, 1.0);
+      final sparkColor = i % 4 == 0 ? C.gold : (i % 4 == 1 ? Colors.white : (i % 4 == 2 ? C.cyan : C.purple));
+      // Outer glow
+      canvas.drawCircle(
+        Offset(sx, sy),
+        sparkSize * 2.5,
+        Paint()
+          ..color = sparkColor.withValues(alpha: sOpacity * 0.15)
+          ..style = PaintingStyle.fill
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, sparkSize * 3),
+      );
+      // Bright core
+      canvas.drawCircle(
+        Offset(sx, sy),
+        sparkSize,
+        Paint()
+          ..color = sparkColor.withValues(alpha: sOpacity * 0.9)
+          ..style = PaintingStyle.fill
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, sparkSize * 0.5),
       );
     }
 
@@ -550,12 +596,12 @@ class _LightningPainter extends CustomPainter {
       for (int i = 0; i < boltCount; i += 2) {
         final a1 = (i / boltCount) * 2 * math.pi;
         final a2 = ((i + 1) / boltCount) * 2 * math.pi;
-        final r = logoRadius + 10 + math.sin(t * 7 + i) * 8;
+        final r = logoRadius + 10 + math.sin(t * 3.5 + i) * 8;
         final p1 = Offset(center.dx + r * math.cos(a1), center.dy + r * math.sin(a1));
         final p2 = Offset(center.dx + r * math.cos(a2), center.dy + r * math.sin(a2));
         final controlPt = Offset(
-          (p1.dx + p2.dx) / 2 + math.sin(t * 11 + i) * 12,
-          (p1.dy + p2.dy) / 2 + math.cos(t * 11 + i) * 12,
+          (p1.dx + p2.dx) / 2 + math.sin(t * 5.5 + i) * 12,
+          (p1.dy + p2.dy) / 2 + math.cos(t * 5.5 + i) * 12,
         );
         final arcPath = Path()
           ..moveTo(p1.dx, p1.dy)
