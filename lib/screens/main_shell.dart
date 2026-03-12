@@ -8,6 +8,7 @@ import 'blocks_screen.dart';
 import 'map_screen.dart';
 import 'worklog_screen.dart';
 import 'reports_screen.dart';
+import 'admin_screen.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -25,6 +26,7 @@ class _MainShellState extends State<MainShell> {
     MapTab(),
     WorkLogTab(),
     ReportsTab(),
+    AdminTab(),
   ];
 
   @override
@@ -42,6 +44,7 @@ class _MainShellState extends State<MainShell> {
       bottomNavigationBar: FuturisticNavBar(
         currentIndex: _tabIndex,
         onTap: (i) => setState(() => _tabIndex = i),
+        showAdmin: state.user?.role == 'admin' || state.user?.role == 'assistant_admin',
       ),
     );
   }

@@ -271,23 +271,27 @@ class _GlowTextFieldState extends State<GlowTextField> {
 class FuturisticNavBar extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;
+  final bool showAdmin;
 
   const FuturisticNavBar({
     super.key,
     required this.currentIndex,
     required this.onTap,
+    this.showAdmin = false,
   });
 
-  static const _items = [
+  static const _baseItems = [
     _NavItem(Icons.dashboard_rounded, 'Home'),
     _NavItem(Icons.widgets_rounded, 'Blocks'),
     _NavItem(Icons.map_rounded, 'Map'),
     _NavItem(Icons.edit_note_rounded, 'Log'),
     _NavItem(Icons.insights_rounded, 'Reports'),
   ];
+  static const _adminItem = _NavItem(Icons.settings_rounded, 'Admin');
 
   @override
   Widget build(BuildContext context) {
+    final items = showAdmin ? [..._baseItems, _adminItem] : _baseItems;
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
@@ -314,7 +318,7 @@ class FuturisticNavBar extends StatelessWidget {
           filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: List.generate(_items.length, (i) {
+            children: List.generate(items.length, (i) {
               final active = i == currentIndex;
               return Expanded(
                 child: GestureDetector(
@@ -334,14 +338,14 @@ class FuturisticNavBar extends StatelessWidget {
                         AnimatedContainer(
                           duration: const Duration(milliseconds: 250),
                           child: Icon(
-                            _items[i].icon,
+                            items[i].icon,
                             size: active ? 24 : 22,
                             color: active ? C.cyan : C.textDim,
                           ),
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          _items[i].label,
+                          items[i].label,
                           style: AppTheme.font(
                             size: 10,
                             weight: active ? FontWeight.w700 : FontWeight.w500,

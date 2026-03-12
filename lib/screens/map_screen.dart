@@ -340,11 +340,11 @@ class _MapTabState extends State<MapTab> {
               padding: const EdgeInsets.all(1),
               child: Text(
                 blockName,
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: _hexToColor(area['label_color']) ?? Colors.white,
                   fontSize: 10,
                   fontWeight: FontWeight.w700,
-                  shadows: [
+                  shadows: const [
                     Shadow(color: Colors.black87, blurRadius: 3)
                   ],
                 ),
@@ -437,6 +437,17 @@ class _MapTabState extends State<MapTab> {
     if (v == null) return null;
     if (v is int) return v;
     return int.tryParse(v.toString());
+  }
+
+  Color? _hexToColor(dynamic hex) {
+    if (hex == null) return null;
+    try {
+      final h = hex.toString().replaceFirst('#', '');
+      final full = h.length == 6 ? 'FF$h' : h;
+      return Color(int.parse(full, radix: 16));
+    } catch (_) {
+      return null;
+    }
   }
 }
 

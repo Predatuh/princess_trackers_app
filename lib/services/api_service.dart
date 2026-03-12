@@ -262,4 +262,52 @@ class ApiService {
     }
     return null;
   }
+
+  // ── Admin ────────────────────────────────────────────
+
+  Future<bool> saveSettings(Map<String, dynamic> data) async {
+    final res = await _client.post(
+      Uri.parse('$baseUrl/api/admin/settings'),
+      headers: _headers,
+      body: jsonEncode(data),
+    );
+    return res.statusCode == 200;
+  }
+
+  Future<bool> updateSiteArea(int areaId, Map<String, dynamic> data) async {
+    final res = await _client.put(
+      Uri.parse('$baseUrl/api/map/area/$areaId'),
+      headers: _headers,
+      body: jsonEncode(data),
+    );
+    return res.statusCode == 200;
+  }
+
+  Future<bool> deleteSiteArea(int areaId) async {
+    final res = await _client.delete(
+      Uri.parse('$baseUrl/api/map/area/$areaId'),
+      headers: _headers,
+    );
+    return res.statusCode == 200;
+  }
+
+  Future<List<dynamic>> getUsers() async {
+    final res = await _client.get(
+      Uri.parse('$baseUrl/api/auth/users'),
+      headers: _headers,
+    );
+    if (res.statusCode == 200) {
+      return (jsonDecode(res.body)['data'] as List?) ?? [];
+    }
+    return [];
+  }
+
+  Future<bool> updateUserRole(int userId, String role) async {
+    final res = await _client.put(
+      Uri.parse('$baseUrl/api/auth/users/$userId'),
+      headers: _headers,
+      body: jsonEncode({'role': role}),
+    );
+    return res.statusCode == 200;
+  }
 }

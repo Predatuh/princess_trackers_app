@@ -100,6 +100,8 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> reloadSettings() => _loadSettings();
+
   // ── Power Blocks ──────────────────────────────────────
 
   Future<void> loadBlocks() async {
