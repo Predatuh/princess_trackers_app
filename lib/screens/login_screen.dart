@@ -1,4 +1,4 @@
-import 'dart:math' as math;
+﻿import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/app_state.dart';
@@ -285,7 +285,7 @@ class _LoginScreenState extends State<LoginScreen>
               },
             ),
 
-          // Overload flash — multi-stage: cyan flash → white burn → fade
+          // Overload flash â€” multi-stage: cyan flash â†’ white burn â†’ fade
           if (_phase == _AuthPhase.success)
             AnimatedBuilder(
               animation: Listenable.merge([_chargeCtrl, _explodeCtrl]),
@@ -293,7 +293,7 @@ class _LoginScreenState extends State<LoginScreen>
                 // During charge: pulsing cyan overlay
                 double chargeGlow = 0;
                 if (_chargeCtrl.value > 0.5) {
-                  final p = (_chargeCtrl.value - 0.5) * 2; // 0→1
+                  final p = (_chargeCtrl.value - 0.5) * 2; // 0â†’1
                   chargeGlow = math.sin(p * math.pi * 4) * 0.15 * p;
                 }
                 // During explosion: intense white burn
@@ -360,7 +360,7 @@ class _LoginScreenState extends State<LoginScreen>
                     _explodeCtrl.value, logoSize / 2),
               ),
             ),
-          // Logo — scales up then shatters away during explosion
+          // Logo â€” scales up then shatters away during explosion
           if (_explodeCtrl.value < 0.35)
             Transform.scale(
               scale: _explodeCtrl.value > 0
@@ -428,12 +428,10 @@ class _LoginScreenState extends State<LoginScreen>
   }
 }
 
-// ─────────────────────────────────────────────
-// LIGHTNING PAINTER — multi-segment branching bolts
-// ─────────────────────────────────────────────
-// ─────────────────────────────────────────────
-// SPARK PAINTER — floating, twinkling spark particles
-// ─────────────────────────────────────────────
+
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// WIRE SPARK PAINTER â€” jagged electrical arcs + crackling discharge
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _SparkPainter extends CustomPainter {
   final double t;
   final double logoRadius;
@@ -441,177 +439,159 @@ class _SparkPainter extends CustomPainter {
 
   _SparkPainter(this.t, this.logoRadius, this.chargeT);
 
+  // Generate a jagged lightning path from start to end
+  Path _jaggedPath(Offset start, Offset end, int segments, double deviation, int seed) {
+    final path = Path();
+    path.moveTo(start.dx, start.dy);
+    final rng = math.Random(seed + (t * 60).toInt());
+    for (int i = 1; i < segments; i++) {
+      final lerp = i / segments;
+      final midX = start.dx + (end.dx - start.dx) * lerp;
+      final midY = start.dy + (end.dy - start.dy) * lerp;
+      final perpX = -(end.dy - start.dy) / (end - start).distance;
+      final perpY = (end.dx - start.dx) / (end - start).distance;
+      final jitter = (rng.nextDouble() - 0.5) * 2 * deviation;
+      path.lineTo(midX + perpX * jitter, midY + perpY * jitter);
+    }
+    path.lineTo(end.dx, end.dy);
+    return path;
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final intensity = 1.0 + chargeT * 1.5;
+    final intensity = 1.0 + chargeT * 2.0;
+    final arcCount = (6 * intensity).round().clamp(6, 16);
 
-    // ── Layer 1: Orbiting spark ring ──
-    final orbitCount = (20 * intensity).round().clamp(20, 40);
-    for (int i = 0; i < orbitCount; i++) {
-      final baseAngle = (i / orbitCount) * 2 * math.pi;
-      final speed = 0.3 + (i % 3) * 0.15;
-      final angle = baseAngle + t * 2 * math.pi * speed;
+    // â”€â”€ Jagged electric arcs radiating from crown edge â”€â”€
+    for (int i = 0; i < arcCount; i++) {
+      final seed = i * 137 + (t * 30).toInt();
+      final rng = math.Random(seed);
+      // Arc origin on the logo circle, randomised angle
+      final baseAngle = (i / arcCount) * 2 * math.pi + t * math.pi * 0.4;
+      final angleJitter = rng.nextDouble() * 0.5 - 0.25;
+      final angle = baseAngle + angleJitter;
 
-      // Twinkle flicker
-      final twinkle = (math.sin(t * 2 * math.pi * (1.5 + i * 0.2) + i * 2.7) + 1) / 2;
-      if (twinkle < 0.15) continue;
-      final opacity = ((twinkle - 0.15) / 0.85).clamp(0.0, 1.0) * (0.6 + chargeT * 0.4);
-
-      // Radial drift — sparks float in/out from logo
-      final drift = math.sin(t * 1.8 + i * 1.5) * (12 + chargeT * 20);
-      final radius = logoRadius + 10 + drift;
-
-      final x = center.dx + radius * math.cos(angle);
-      final y = center.dy + radius * math.sin(angle);
-
-      // Spark size — small base, grows with charge
-      final sparkSize = (1.2 + chargeT * 2.5 + twinkle * 1.5) * (0.8 + (i % 3) * 0.2);
-
-      // Color palette
-      final colors = [C.cyan, C.purple, C.gold, Colors.white];
-      final sparkColor = colors[i % colors.length];
-
-      // Outer glow halo
-      canvas.drawCircle(
-        Offset(x, y),
-        sparkSize * 3,
-        Paint()
-          ..color = sparkColor.withValues(alpha: opacity * 0.1)
-          ..style = PaintingStyle.fill
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, sparkSize * 3),
+      final startDist = logoRadius * 0.9;
+      final flickerLen = 20.0 + rng.nextDouble() * (30 + chargeT * 60);
+      final start = Offset(
+        center.dx + startDist * math.cos(angle),
+        center.dy + startDist * math.sin(angle),
       );
-      // Mid glow
-      canvas.drawCircle(
-        Offset(x, y),
-        sparkSize * 1.5,
-        Paint()
-          ..color = sparkColor.withValues(alpha: opacity * 0.3)
-          ..style = PaintingStyle.fill
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, sparkSize * 1.5),
-      );
-      // Bright core
-      canvas.drawCircle(
-        Offset(x, y),
-        sparkSize * 0.6,
-        Paint()
-          ..color = Colors.white.withValues(alpha: opacity * 0.9)
-          ..style = PaintingStyle.fill,
+      final end = Offset(
+        center.dx + (startDist + flickerLen) * math.cos(angle),
+        center.dy + (startDist + flickerLen) * math.sin(angle),
       );
 
-      // 4-point star cross on brighter sparks
-      if (twinkle > 0.6 && sparkSize > 2) {
-        final crossLen = sparkSize * 2.5;
-        final crossOpacity = opacity * 0.35;
-        final crossPaint = Paint()
-          ..color = sparkColor.withValues(alpha: crossOpacity)
-          ..strokeWidth = 0.6
-          ..strokeCap = StrokeCap.round
-          ..style = PaintingStyle.stroke
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 1.5);
-        // Horizontal
-        canvas.drawLine(
-          Offset(x - crossLen, y), Offset(x + crossLen, y), crossPaint);
-        // Vertical
-        canvas.drawLine(
-          Offset(x, y - crossLen), Offset(x, y + crossLen), crossPaint);
-      }
-    }
+      // Flicker: blink arcs in/out rapidly
+      final flicker = math.sin(t * math.pi * 18 + i * 2.3);
+      if (flicker < -0.1) continue;
+      final alpha = (flicker + 0.1).clamp(0.0, 1.0) * (0.6 + chargeT * 0.4);
 
-    // ── Layer 2: Rising embers (float upward like fire sparks) ──
-    final emberCount = (10 + chargeT * 18).round();
-    for (int i = 0; i < emberCount; i++) {
-      final seed = i * 5.37 + 2.1;
-      final phase = (t * (0.4 + (i % 4) * 0.1) + seed) % 1.0;
+      // Branch colours â€” cyan/white core, purple glow
+      final isWhite = i % 3 == 0;
+      final arcColor = isWhite ? Colors.white : C.cyan;
 
-      // Rise from bottom of orbit to top, then reset
-      final riseAngle = -math.pi / 2 + math.sin(seed) * 0.8; // mostly upward
-      final spreadAngle = (i / emberCount) * 2 * math.pi + math.sin(seed * 1.3) * 0.5;
-      final startR = logoRadius + 5;
-      final travelDist = (30 + chargeT * 50) * phase;
+      // Outer glow stroke
+      final glowPaint = Paint()
+        ..color = C.cyan.withValues(alpha: alpha * 0.25)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4.0 + chargeT * 3
+        ..strokeCap = StrokeCap.round
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+      canvas.drawPath(
+          _jaggedPath(start, end, 5 + i % 3, 8 + chargeT * 10, seed), glowPaint);
 
-      final x = center.dx + startR * math.cos(spreadAngle) +
-          travelDist * math.cos(riseAngle) + math.sin(t * 3 + seed) * 8;
-      final y = center.dy + startR * math.sin(spreadAngle) +
-          travelDist * math.sin(riseAngle);
+      // Core bright stroke
+      final corePaint = Paint()
+        ..color = arcColor.withValues(alpha: alpha * 0.95)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0 + (isWhite ? 0.5 : 0)
+        ..strokeCap = StrokeCap.round;
+      canvas.drawPath(
+          _jaggedPath(start, end, 5 + i % 3, 8 + chargeT * 10, seed), corePaint);
 
-      // Fade in quickly, fade out slowly
-      final fadeIn = (phase * 4).clamp(0.0, 1.0);
-      final fadeOut = (1 - phase).clamp(0.0, 1.0);
-      final emberOpacity = fadeIn * fadeOut * (0.5 + chargeT * 0.5);
-
-      final emberSize = (0.6 + chargeT * 2.0) * (1 - phase * 0.5);
-      final emberColors = [C.gold, C.cyan, C.purple, Colors.white, C.pink];
-      final emberColor = emberColors[i % emberColors.length];
-
-      // Glow
+      // Tiny spark dot at tip
+      final tip = end;
       canvas.drawCircle(
-        Offset(x, y),
-        emberSize * 2,
+        tip,
+        1.5 + rng.nextDouble(),
         Paint()
-          ..color = emberColor.withValues(alpha: emberOpacity * 0.2)
-          ..style = PaintingStyle.fill
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, emberSize * 2.5),
-      );
-      // Core
-      canvas.drawCircle(
-        Offset(x, y),
-        emberSize,
-        Paint()
-          ..color = emberColor.withValues(alpha: emberOpacity * 0.85)
-          ..style = PaintingStyle.fill
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, emberSize * 0.4),
+          ..color = Colors.white.withValues(alpha: alpha)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
       );
     }
 
-    // ── Layer 3: Shimmering dust ring (subtle sparkle halo) ──
-    final dustCount = (30 + chargeT * 20).round();
-    for (int i = 0; i < dustCount; i++) {
-      final angle = (i / dustCount) * 2 * math.pi + t * math.pi * 0.2;
-      final wobble = math.sin(t * 2.5 + i * 1.7) * 6;
-      final r = logoRadius + 4 + wobble + (i % 5) * 2;
+    // â”€â”€ Crackling small secondary sparks around logo edge â”€â”€
+    final crackleCount = (12 + chargeT * 20).round();
+    for (int i = 0; i < crackleCount; i++) {
+      final seed2 = i * 53 + (t * 45).toInt();
+      final rng2 = math.Random(seed2);
+      final angle = rng2.nextDouble() * 2 * math.pi;
+      final r = logoRadius + rng2.nextDouble() * (8 + chargeT * 15);
       final x = center.dx + r * math.cos(angle);
       final y = center.dy + r * math.sin(angle);
 
-      final flicker = (math.sin(t * 5 + i * 3.3) + 1) / 2;
-      if (flicker < 0.4) continue;
-      final dustOpacity = ((flicker - 0.4) / 0.6) * 0.3;
-      final dustSize = 0.5 + flicker * 0.8;
-
+      final flicker2 = math.sin(t * math.pi * 25 + i * 4.7);
+      if (flicker2 < 0) continue;
+      final sz = 0.8 + rng2.nextDouble() * 1.5;
+      final sparkColors = [C.cyan, Colors.white, C.gold, C.purple];
+      final sc = sparkColors[i % sparkColors.length];
       canvas.drawCircle(
         Offset(x, y),
-        dustSize,
+        sz * 1.8,
         Paint()
-          ..color = Colors.white.withValues(alpha: dustOpacity)
-          ..style = PaintingStyle.fill,
+          ..color = sc.withValues(alpha: flicker2 * 0.3)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, sz * 2),
+      );
+      canvas.drawCircle(
+        Offset(x, y),
+        sz,
+        Paint()..color = Colors.white.withValues(alpha: flicker2 * 0.85),
       );
     }
 
-    // ── Layer 4: Charge-up spark trails (during charge phase) ──
-    if (chargeT > 0.2) {
-      final trailCount = ((chargeT - 0.2) / 0.8 * 12).round().clamp(0, 12);
-      for (int i = 0; i < trailCount; i++) {
-        final angle = (i / 12) * 2 * math.pi + t * math.pi * 1.5;
-        final trailR = logoRadius + 8;
+    // â”€â”€ During heavy charge: forking bolts (crown shorting out) â”€â”€
+    if (chargeT > 0.3) {
+      final forkAlpha = ((chargeT - 0.3) / 0.7).clamp(0.0, 1.0);
+      final forkCount = (forkAlpha * 4).round().clamp(1, 4);
+      for (int fi = 0; fi < forkCount; fi++) {
+        final fa = fi * (math.pi / 2) + t * math.pi;
+        final fseed = fi * 91 + (t * 20).toInt();
+        final fstart = Offset(
+          center.dx + logoRadius * 0.8 * math.cos(fa),
+          center.dy + logoRadius * 0.8 * math.sin(fa),
+        );
+        final fend = Offset(
+          center.dx + (logoRadius + 50 + chargeT * 40) * math.cos(fa + 0.1),
+          center.dy + (logoRadius + 50 + chargeT * 40) * math.sin(fa + 0.1),
+        );
+        final fFlicker = (math.sin(t * math.pi * 22 + fi * 5) + 1) / 2;
+        if (fFlicker < 0.2) continue;
 
-        // Draw a trail of 4-5 diminishing dots spiraling inward
-        for (int d = 0; d < 5; d++) {
-          final dOffset = d * 0.04;
-          final da = angle - dOffset * math.pi * 2;
-          final dr = trailR + d * 3;
-          final dx = center.dx + dr * math.cos(da);
-          final dy = center.dy + dr * math.sin(da);
-          final dSize = (2.0 - d * 0.3) * chargeT;
-          final dOpacity = (0.6 - d * 0.1) * chargeT;
+        // Forking branch
+        final fmidAngle = fa + (math.Random(fseed).nextDouble() - 0.5) * 0.6;
+        final fmid = Offset(
+          center.dx + (logoRadius + 25) * math.cos(fmidAngle),
+          center.dy + (logoRadius + 25) * math.sin(fmidAngle),
+        );
+        final fEnd2 = Offset(
+          center.dx + (logoRadius + 40 + chargeT * 30) * math.cos(fmidAngle + 0.3),
+          center.dy + (logoRadius + 40 + chargeT * 30) * math.sin(fmidAngle + 0.3),
+        );
 
-          final trailColor = i % 2 == 0 ? C.cyan : C.gold;
-          canvas.drawCircle(
-            Offset(dx, dy),
-            dSize.clamp(0.3, 5.0),
+        for (final pts in [
+          [fstart, fend],
+          [fmid, fEnd2]
+        ]) {
+          canvas.drawPath(
+            _jaggedPath(pts[0], pts[1], 6, 12 + chargeT * 8, fseed),
             Paint()
-              ..color = trailColor.withValues(alpha: dOpacity.clamp(0.0, 1.0))
-              ..style = PaintingStyle.fill
-              ..maskFilter = MaskFilter.blur(BlurStyle.normal, dSize),
+              ..color = Colors.white.withValues(alpha: fFlicker * forkAlpha * 0.9)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.2
+              ..strokeCap = StrokeCap.round
+              ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
           );
         }
       }
@@ -623,11 +603,11 @@ class _SparkPainter extends CustomPainter {
       old.t != t || old.chargeT != chargeT;
 }
 
-// ─────────────────────────────────────────────
-// CHARGE RING PAINTER — energy buildup rings
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// CHARGE RING PAINTER â€” electric overload buildup rings
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _ChargeRingPainter extends CustomPainter {
-  final double t; // 0→1 charge progress
+  final double t; // 0â†’1 charge progress
   final double logoRadius;
 
   _ChargeRingPainter(this.t, this.logoRadius);
@@ -636,13 +616,14 @@ class _ChargeRingPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
 
-    // Concentric pulsing rings that appear and tighten
-    final ringCount = (3 + t * 4).round();
+    // Expanding electromagnetic rings that pulse outward
+    final ringCount = (2 + t * 3).round();
     for (int i = 0; i < ringCount; i++) {
-      final phase = (t * 3 + i * 0.7) % 1.0;
-      final radius = logoRadius * (1.1 + phase * 0.8);
-      final opacity = (math.sin(phase * math.pi) * (0.15 + t * 0.3)).clamp(0.0, 1.0);
-      final width = 1.5 + (1 - phase) * 2;
+      final phase = (t * 2 + i * 0.5) % 1.0;
+      final radius = logoRadius * (1.05 + phase * 1.2);
+      final flickerAlpha = math.sin(t * math.pi * 16 + i) * 0.5 + 0.5;
+      final opacity = (math.sin(phase * math.pi) * (0.12 + t * 0.35) * flickerAlpha).clamp(0.0, 1.0);
+      final strokeW = 1.2 + (1 - phase) * 1.8;
       final color = i.isEven ? C.cyan : C.purple;
       canvas.drawCircle(
         center,
@@ -650,35 +631,34 @@ class _ChargeRingPainter extends CustomPainter {
         Paint()
           ..color = color.withValues(alpha: opacity)
           ..style = PaintingStyle.stroke
-          ..strokeWidth = width
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, width * 2),
+          ..strokeWidth = strokeW
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, strokeW * 3),
       );
     }
 
-    // Inner energy core glow intensifying
-    if (t > 0.4) {
-      final coreIntensity = ((t - 0.4) / 0.6).clamp(0.0, 1.0);
+    // Core electromagnetic glow that brightens on overload
+    if (t > 0.3) {
+      final coreI = ((t - 0.3) / 0.7).clamp(0.0, 1.0);
+      final flicker = (math.sin(t * math.pi * 30) + 1) / 2;
       canvas.drawCircle(
         center,
-        logoRadius * 0.95,
+        logoRadius * 0.9,
         Paint()
-          ..color = C.cyan.withValues(alpha: coreIntensity * 0.2)
-          ..style = PaintingStyle.fill
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, logoRadius * 0.4),
+          ..color = C.cyan.withValues(alpha: coreI * flicker * 0.22)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, logoRadius * 0.5),
       );
     }
 
-    // Final overload warning flicker
-    if (t > 0.8) {
-      final warn = ((t - 0.8) / 0.2).clamp(0.0, 1.0);
-      final flicker = (math.sin(t * 60) + 1) / 2;
+    // Pre-overload warning: rapid white flicker at high charge
+    if (t > 0.75) {
+      final warn = ((t - 0.75) / 0.25).clamp(0.0, 1.0);
+      final warnFlicker = (math.sin(t * math.pi * 50) + 1) / 2;
       canvas.drawCircle(
         center,
-        logoRadius * 1.05,
+        logoRadius * 1.02,
         Paint()
-          ..color = Colors.white.withValues(alpha: warn * flicker * 0.4)
-          ..style = PaintingStyle.fill
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, logoRadius * 0.3),
+          ..color = Colors.white.withValues(alpha: warn * warnFlicker * 0.35)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, logoRadius * 0.25),
       );
     }
   }
@@ -687,11 +667,11 @@ class _ChargeRingPainter extends CustomPainter {
   bool shouldRepaint(_ChargeRingPainter old) => old.t != t;
 }
 
-// ─────────────────────────────────────────────
-// OVERLOAD EXPLOSION PAINTER — massive burst
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// SHATTER EXPLOSION PAINTER â€” crown fragments fly outward
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _OverloadExplosionPainter extends CustomPainter {
-  final double t; // 0→1
+  final double t; // 0â†’1
   final double logoRadius;
 
   _OverloadExplosionPainter(this.t, this.logoRadius);
@@ -701,125 +681,137 @@ class _OverloadExplosionPainter extends CustomPainter {
     final center = Offset(size.width / 2, size.height / 2);
     final scale = logoRadius / 65;
 
-    // === Wave 1: Inner fast particles (small, bright, fast) ===
-    const innerCount = 36;
-    for (int i = 0; i < innerCount; i++) {
-      final angle = (i / innerCount) * 2 * math.pi +
-          math.sin(i * 1.7) * 0.3;
-      final speed = (100.0 + (i % 7) * 25.0) * scale;
-      final dist = speed * t * t; // accelerating
-      final fadeStart = 0.3 + (i % 5) * 0.05;
-      final pOpacity = t < fadeStart
-          ? 1.0
-          : math.pow(1.0 - ((t - fadeStart) / (1 - fadeStart)), 1.8)
-              .toDouble()
-              .clamp(0.0, 1.0);
-      final pSize = (1.5 + (i % 3) * 0.8) * (1 - t * 0.3);
-
-      final x = center.dx + dist * math.cos(angle);
-      final y = center.dy + dist * math.sin(angle);
-
-      final color = i % 4 == 0
-          ? C.purple
-          : (i % 4 == 1 ? C.cyan : (i % 4 == 2 ? Colors.white : C.gold));
-      canvas.drawCircle(
-        Offset(x, y),
-        pSize.clamp(0.2, 8.0),
-        Paint()
-          ..color = color.withValues(alpha: pOpacity * 0.95)
-          ..style = PaintingStyle.fill
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, pSize * 1.2),
-      );
-    }
-
-    // === Wave 2: Larger energy chunks (slower, bigger, glowier) ===
-    const chunkCount = 16;
-    final chunkDelay = 0.05;
-    final ct = (t - chunkDelay).clamp(0.0, 1.0);
-    if (ct > 0) {
-      for (int i = 0; i < chunkCount; i++) {
-        final angle = (i / chunkCount) * 2 * math.pi;
-        final speed = (60.0 + (i % 4) * 20.0) * scale;
-        final dist = speed * ct;
-        final pOpacity = math.pow(1.0 - ct, 1.2).toDouble().clamp(0.0, 1.0);
-        final pSize = (4.0 + (i % 3) * 2.5) * (1 - ct * 0.4);
-
-        final x = center.dx + dist * math.cos(angle);
-        final y = center.dy + dist * math.sin(angle);
-        final color = i.isEven ? C.cyan : C.purple;
-
-        // Glow halo
-        canvas.drawCircle(
-          Offset(x, y),
-          pSize * 2.5,
-          Paint()
-            ..color = color.withValues(alpha: pOpacity * 0.15)
-            ..style = PaintingStyle.fill
-            ..maskFilter = MaskFilter.blur(BlurStyle.normal, pSize * 3),
-        );
-        // Core
-        canvas.drawCircle(
-          Offset(x, y),
-          pSize.clamp(0.3, 14.0),
-          Paint()
-            ..color = Colors.white.withValues(alpha: pOpacity * 0.8)
-            ..style = PaintingStyle.fill
-            ..maskFilter = MaskFilter.blur(BlurStyle.normal, pSize * 0.5),
-        );
-      }
-    }
-
-    // === Spark burst radiating outward during explosion ===
-    if (t < 0.5) {
-      const sparkBurstCount = 24;
-      final burstOpacity = (1 - t * 2).clamp(0.0, 1.0);
-      for (int i = 0; i < sparkBurstCount; i++) {
-        final angle = (i / sparkBurstCount) * 2 * math.pi;
-        final dist = (30 + t * 150) * scale;
-        final x = center.dx + dist * math.cos(angle);
-        final y = center.dy + dist * math.sin(angle);
-        final sSize = (2.0 + (i % 3) * 1.0) * (1 - t);
-        final colors = [C.cyan, C.gold, C.purple, Colors.white];
-        final sColor = colors[i % colors.length];
-
-        // Glow
-        canvas.drawCircle(
-          Offset(x, y),
-          sSize * 2.5,
-          Paint()
-            ..color = sColor.withValues(alpha: burstOpacity * 0.25)
-            ..style = PaintingStyle.fill
-            ..maskFilter = MaskFilter.blur(BlurStyle.normal, sSize * 2),
-        );
-        // Core
-        canvas.drawCircle(
-          Offset(x, y),
-          sSize,
-          Paint()
-            ..color = Colors.white.withValues(alpha: burstOpacity * 0.9)
-            ..style = PaintingStyle.fill,
-        );
-      }
-    }
-
-    // === Shockwave rings (multiple, staggered) ===
-    for (int r = 0; r < 3; r++) {
-      final ringDelay = r * 0.08;
-      final rt = (t - ringDelay).clamp(0.0, 1.0);
+    // â”€â”€ Shockwave shatter rings â”€â”€
+    for (int r = 0; r < 4; r++) {
+      final delay = r * 0.06;
+      final rt = (t - delay).clamp(0.0, 1.0);
       if (rt <= 0) continue;
-      final ringRadius = logoRadius * (0.5 + rt * 3.0);
-      final ringOpacity = math.pow(1 - rt, 2.0).toDouble().clamp(0.0, 1.0);
-      final strokeW = (4.0 - r * 0.8) * (1 - rt * 0.7);
-      if (ringOpacity > 0 && strokeW > 0.1) {
-        final ringColor = r == 0 ? Colors.white : (r == 1 ? C.cyan : C.purple);
+      final ringR = logoRadius * (0.4 + rt * 3.5);
+      final ringAlpha = math.pow(1 - rt, 1.8).toDouble().clamp(0.0, 1.0);
+      final sw = (3.5 - r * 0.5) * (1 - rt * 0.8);
+      if (ringAlpha > 0 && sw > 0.1) {
+        final rc = r == 0 ? Colors.white : (r == 1 ? C.cyan : (r == 2 ? C.purple : C.gold));
         canvas.drawCircle(
           center,
-          ringRadius,
+          ringR,
           Paint()
-            ..color = ringColor.withValues(alpha: ringOpacity * 0.6)
+            ..color = rc.withValues(alpha: ringAlpha * 0.7)
             ..style = PaintingStyle.stroke
-            ..strokeWidth = strokeW
-            ..maskFilter = MaskFilter.blur(BlurStyle.normal, 6 + rt * 4),
+            ..strokeWidth = sw
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, 5 + rt * 5),
+        );
+      }
+    }
+
+    // â”€â”€ Crown shard fragments flying outward â”€â”€
+    // Each shard is a small irregular polygon
+    const shardCount = 24;
+    for (int i = 0; i < shardCount; i++) {
+      final rng = math.Random(i * 137);
+      final angle = (i / shardCount) * 2 * math.pi + rng.nextDouble() * 0.4;
+      final speed = (80.0 + rng.nextDouble() * 60) * scale;
+      final spinSpeed = (rng.nextDouble() - 0.5) * 8;
+
+      // Fragments accelerate outward then slow
+      final dist = speed * t * (2 - t); // ease out
+      final shardX = center.dx + dist * math.cos(angle);
+      final shardY = center.dy + dist * math.sin(angle);
+
+      // Fade out
+      final fadeStart = 0.25 + rng.nextDouble() * 0.3;
+      final opacity = t < fadeStart
+          ? 1.0
+          : math.pow(1 - ((t - fadeStart) / (1 - fadeStart)), 1.5)
+              .toDouble()
+              .clamp(0.0, 1.0);
+      if (opacity <= 0) continue;
+
+      // Shard shape â€” small irregular triangle/quad
+      final shardSize = (3.0 + rng.nextDouble() * 4.0) * (1 - t * 0.4);
+      final rotation = t * spinSpeed * math.pi;
+
+      canvas.save();
+      canvas.translate(shardX, shardY);
+      canvas.rotate(rotation);
+
+      // Draw a triangular shard
+      final path = Path();
+      final pts = 3 + (i % 2); // 3 or 4 points
+      for (int p = 0; p < pts; p++) {
+        final a = (p / pts) * 2 * math.pi + rng.nextDouble() * 0.6;
+        final r2 = shardSize * (0.5 + rng.nextDouble() * 0.5);
+        if (p == 0) {
+          path.moveTo(r2 * math.cos(a), r2 * math.sin(a));
+        } else {
+          path.lineTo(r2 * math.cos(a), r2 * math.sin(a));
+        }
+      }
+      path.close();
+
+      // Shard fill â€” glowing fragment material
+      final shardColors = [C.cyan, C.purple, C.gold, Colors.white];
+      final sc = shardColors[i % shardColors.length];
+
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = sc.withValues(alpha: opacity * 0.9)
+          ..style = PaintingStyle.fill
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, shardSize * 0.4),
+      );
+      // Bright edge highlight
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = Colors.white.withValues(alpha: opacity * 0.5)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.5,
+      );
+
+      canvas.restore();
+    }
+
+    // â”€â”€ High-energy bolt spray at explosion origin (early phase) â”€â”€
+    if (t < 0.45) {
+      final boltAlpha = (1 - t / 0.45).clamp(0.0, 1.0);
+      const boltCount = 16;
+      final rngB = math.Random((t * 60).toInt());
+      for (int b = 0; b < boltCount; b++) {
+        final bAngle = (b / boltCount) * 2 * math.pi;
+        final bLen = (20 + rngB.nextDouble() * 40) * scale * (1 + t);
+        final bEnd = Offset(
+          center.dx + bLen * math.cos(bAngle),
+          center.dy + bLen * math.sin(bAngle),
+        );
+        // Jagged bolt from center
+        final bPath = Path();
+        bPath.moveTo(center.dx, center.dy);
+        final segments = 4;
+        for (int s = 1; s < segments; s++) {
+          final lerp = s / segments;
+          final mx = center.dx + (bEnd.dx - center.dx) * lerp;
+          final my = center.dy + (bEnd.dy - center.dy) * lerp;
+          final jitter = (rngB.nextDouble() - 0.5) * 12;
+          bPath.lineTo(mx + jitter, my + jitter);
+        }
+        bPath.lineTo(bEnd.dx, bEnd.dy);
+
+        canvas.drawPath(
+          bPath,
+          Paint()
+            ..color = C.cyan.withValues(alpha: boltAlpha * 0.4)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2.5
+            ..strokeCap = StrokeCap.round
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+        );
+        canvas.drawPath(
+          bPath,
+          Paint()
+            ..color = Colors.white.withValues(alpha: boltAlpha * 0.8)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 0.8
+            ..strokeCap = StrokeCap.round,
         );
       }
     }

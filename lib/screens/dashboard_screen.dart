@@ -300,13 +300,13 @@ class _TrackerHubCard extends StatelessWidget {
                     color: C.cyan),
                 const SizedBox(width: 8),
                 _StatPill(
-                    value: '$totalItems',
-                    label: tracker.itemNamePlural ?? 'Items',
+                    value: '$termedCount',
+                    label: 'Terminated',
                     color: C.green),
                 const SizedBox(width: 8),
                 _StatPill(
-                    value: '$termedCount',
-                    label: statLabel,
+                    value: '${(pct * 100).toInt()}%',
+                    label: 'Complete',
                     color: C.purple),
               ],
             ),

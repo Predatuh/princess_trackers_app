@@ -6,6 +6,7 @@ class PowerBlock {
   final Map<String, int> lbdSummary;
   final List<LbdItem> lbds;
   final String? claimedBy;
+  final String? zone;
 
   PowerBlock({
     required this.id,
@@ -15,6 +16,7 @@ class PowerBlock {
     this.lbdSummary = const {},
     this.lbds = const [],
     this.claimedBy,
+    this.zone,
   });
 
   factory PowerBlock.fromJson(Map<String, dynamic> j) {
@@ -30,6 +32,7 @@ class PowerBlock {
       lbdSummary: summary,
       lbds: (j['lbds'] as List? ?? []).map((e) => LbdItem.fromJson(e as Map<String, dynamic>)).toList(),
       claimedBy: j['claimed_by']?.toString(),
+      zone: j['zone']?.toString(),
     );
   }
 }

@@ -23,6 +23,7 @@ class _BlocksTabState extends State<BlocksTab> {
   _ClaimFilter _claimFilter = _ClaimFilter.all;
   _SortMode _sortMode = _SortMode.blockNumber;
   bool _showFilters = false;
+  String? _zoneFilter;
 
   @override
   void dispose() {
@@ -67,6 +68,11 @@ class _BlocksTabState extends State<BlocksTab> {
       filtered = filtered.where((b) => b.claimedBy != null).toList();
     } else if (_claimFilter == _ClaimFilter.unclaimed) {
       filtered = filtered.where((b) => b.claimedBy == null).toList();
+    }
+
+    // Zone filter
+    if (_zoneFilter != null) {
+      filtered = filtered.where((b) => b.zone == _zoneFilter).toList();
     }
 
     // Sort
@@ -222,6 +228,48 @@ class _BlocksTabState extends State<BlocksTab> {
                     ),
                   ),
                   const SizedBox(height: 8),
+                  // Zone filter row
+                  Builder(builder: (context) {
+                    final zones = allBlocks
+                        .map((b) => b.zone)
+                        .where((z) => z != null && z.isNotEmpty)
+                        .toSet()
+                        .toList()..sort();
+                    if (zones.isEmpty) return const SizedBox.shrink();
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              Icon(Icons.place_rounded, color: C.textDim, size: 14),
+                              const SizedBox(width: 6),
+                              Text('Zone:', style: AppTheme.font(size: 11, color: C.textDim)),
+                              const SizedBox(width: 8),
+                              _FilterChip(
+                                label: 'All',
+                                selected: _zoneFilter == null,
+                                color: C.gold,
+                                onTap: () => setState(() => _zoneFilter = null),
+                              ),
+                              ...zones.map((z) => Padding(
+                                padding: const EdgeInsets.only(left: 6),
+                                child: _FilterChip(
+                                  label: z!,
+                                  selected: _zoneFilter == z,
+                                  color: C.gold,
+                                  onTap: () => setState(() =>
+                                      _zoneFilter = _zoneFilter == z ? null : z),
+                                ),
+                              )),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                    );
+                  }),
                   // Sort row
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
@@ -284,6 +332,7 @@ class _BlocksTabState extends State<BlocksTab> {
                       _statusFilter = _StatusFilter.all;
                       _claimFilter = _ClaimFilter.all;
                       _sortMode = _SortMode.blockNumber;
+                      _zoneFilter = null;
                     }),
                     child: Text(
                       'Clear filters',

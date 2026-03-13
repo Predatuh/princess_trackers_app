@@ -53,34 +53,32 @@ class _MainShellState extends State<MainShell> {
     return AppBar(
       backgroundColor: C.bg.withValues(alpha: 0.85),
       surfaceTintColor: Colors.transparent,
-      title: state.trackers.length <= 1
-          ? Row(
-              children: [
-                Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: const LinearGradient(
-                      colors: [C.cyan, C.purple],
-                    ),
-                    boxShadow: AppTheme.neonGlow(C.cyan, blur: 10, opacity: 0.2),
-                  ),
-                  child: const Icon(Icons.track_changes_rounded,
-                      size: 16, color: Colors.white),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  state.currentTracker?.name ?? 'Princess Trackers',
-                  style: AppTheme.font(
-                    size: 18,
-                    weight: FontWeight.w700,
-                    color: C.text,
-                  ),
-                ),
-              ],
-            )
-          : _trackerDropdown(state),
+      title: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: const LinearGradient(
+                colors: [C.cyan, C.purple],
+              ),
+              boxShadow: AppTheme.neonGlow(C.cyan, blur: 10, opacity: 0.2),
+            ),
+            child: const Icon(Icons.track_changes_rounded,
+                size: 16, color: Colors.white),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            state.currentTracker?.name ?? 'Princess Trackers',
+            style: AppTheme.font(
+              size: 18,
+              weight: FontWeight.w700,
+              color: C.text,
+            ),
+          ),
+        ],
+      ),
       actions: [
         IconButton(
           icon: Icon(Icons.refresh_rounded,
@@ -101,23 +99,4 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  Widget _trackerDropdown(AppState state) {
-    return DropdownButtonHideUnderline(
-      child: DropdownButton<int>(
-        value: state.currentTracker?.id,
-        dropdownColor: C.surface,
-        style: AppTheme.font(size: 18, weight: FontWeight.w700),
-        icon: Icon(Icons.arrow_drop_down_rounded,
-            color: C.cyan.withValues(alpha: 0.7)),
-        items: state.trackers.map((t) {
-          return DropdownMenuItem(value: t.id, child: Text(t.name));
-        }).toList(),
-        onChanged: (id) {
-          if (id == null) return;
-          final t = state.trackers.firstWhere((t) => t.id == id);
-          state.switchTracker(t);
-        },
-      ),
-    );
-  }
 }

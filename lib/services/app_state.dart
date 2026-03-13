@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import '../models/tracker.dart';
 import '../models/power_block.dart';
 import '../models/app_models.dart';
@@ -31,6 +33,105 @@ class AppState extends ChangeNotifier {
 
   // Workers
   List<Worker> workers = [];
+
+  // Offline state
+  bool isOffline = false;
+  final List<Map<String, dynamic>> _pendingQueue = [];
+  late final Stream<List<ConnectivityResult>> _connectivityStream;
+
+  AppState() {
+    _connectivityStream = Connectivity().onConnectivityChanged;
+    _connectivityStream.listen(_onConnectivityChanged);
+    _checkConnectivity();
+  }
+
+  Future<void> _checkConnectivity() async {
+    final result = await Connectivity().checkConnectivity();
+    _onConnectivityChanged(result);
+  }
+
+  void _onConnectivityChanged(List<ConnectivityResult> results) {
+    final wasOffline = isOffline;
+    isOffline = results.every((r) => r == ConnectivityResult.none);
+    if (wasOffline && !isOffline) {
+      _flushPendingQueue();
+    }
+    notifyListeners();
+  }
+
+  Future<void> _flushPendingQueue() async {
+    if (_pendingQueue.isEmpty) return;
+    final toProcess = List<Map<String, dynamic>>.from(_pendingQueue);
+    _pendingQueue.clear();
+    await _savePendingQueue();
+    for (final item in toProcess) {
+      try {
+        await api.updateLbdStatus(
+          item['lbdId'] as int,
+          item['statusType'] as String,
+          item['value'] as bool,
+        );
+      } catch (_) {
+        // Re-queue on failure
+        _pendingQueue.add(item);
+      }
+    }
+    if (_pendingQueue.isNotEmpty) await _savePendingQueue();
+    // Refresh blocks after syncing
+    if (_pendingQueue.isEmpty && currentTracker != null) loadBlocks();
+  }
+
+  Future<void> _savePendingQueue() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('pending_queue', jsonEncode(_pendingQueue));
+  }
+
+  Future<void> _loadPendingQueue() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('pending_queue');
+    if (raw != null) {
+      final list = jsonDecode(raw) as List;
+      _pendingQueue.addAll(list.cast<Map<String, dynamic>>());
+    }
+  }
+
+  String _cacheKey(int trackerId) => 'blocks_cache_$trackerId';
+
+  Future<void> _cacheBlocks(int trackerId, List<PowerBlock> blockList) async {
+    final prefs = await SharedPreferences.getInstance();
+    final encoded = jsonEncode(blockList.map((b) => {
+      'id': b.id,
+      'name': b.name,
+      'power_block_number': b.powerBlockNumber,
+      'lbd_count': b.lbdCount,
+      'lbd_summary': b.lbdSummary,
+      'claimed_by': b.claimedBy,
+      'zone': b.zone,
+      'lbds': b.lbds.map((l) => {
+        'id': l.id,
+        'name': l.name,
+        'identifier': l.identifier,
+        'inventory_number': l.inventoryNumber,
+        'statuses': l.statuses.map((s) => {
+          'status_type': s.statusType,
+          'is_completed': s.isCompleted,
+        }).toList(),
+      }).toList(),
+    }).toList());
+    await prefs.setString(_cacheKey(trackerId), encoded);
+  }
+
+  Future<List<PowerBlock>> _loadCachedBlocks(int trackerId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_cacheKey(trackerId));
+    if (raw == null) return [];
+    try {
+      final list = jsonDecode(raw) as List;
+      return list.map((j) => PowerBlock.fromJson(j as Map<String, dynamic>)).toList();
+    } catch (_) {
+      return [];
+    }
+  }
 
   // ── Auth ──────────────────────────────────────────────
 
@@ -67,6 +168,7 @@ class AppState extends ChangeNotifier {
   Future<bool> tryRestoreSession() async {
     isLoading = true;
     notifyListeners();
+    await _loadPendingQueue();
     user = await api.checkSession();
     if (user != null) await _loadTrackers();
     isLoading = false;
@@ -133,31 +235,59 @@ class AppState extends ChangeNotifier {
     try {
       blocks = await api.getPowerBlocks(currentTracker!.id);
       debugPrint('loadBlocks: got ${blocks.length} blocks');
+      await _cacheBlocks(currentTracker!.id, blocks);
     } catch (e) {
       debugPrint('loadBlocks ERROR: $e');
-      error = 'Failed to load blocks';
+      final cached = await _loadCachedBlocks(currentTracker!.id);
+      if (cached.isNotEmpty) {
+        blocks = cached;
+        isOffline = true;
+        debugPrint('loadBlocks: using cached ${blocks.length} blocks (offline)');
+      } else {
+        error = 'Failed to load blocks';
+      }
     }
     isLoading = false;
     notifyListeners();
   }
 
   Future<void> toggleStatus(int lbdId, String statusType, bool value) async {
+    // Optimistically update local state immediately
+    for (final b in blocks) {
+      for (final lbd in b.lbds) {
+        if (lbd.id == lbdId) {
+          for (final s in lbd.statuses) {
+            if (s.statusType == statusType) {
+              s.isCompleted = value;
+            }
+          }
+        }
+      }
+    }
+    notifyListeners();
+
+    if (isOffline) {
+      // Queue for later sync
+      _pendingQueue.add({'lbdId': lbdId, 'statusType': statusType, 'value': value});
+      await _savePendingQueue();
+      return;
+    }
+
     final ok = await api.updateLbdStatus(lbdId, statusType, value);
-    if (ok) {
-      // Update local state
+    if (!ok) {
+      // Revert local state on failure
       for (final b in blocks) {
         for (final lbd in b.lbds) {
           if (lbd.id == lbdId) {
             for (final s in lbd.statuses) {
               if (s.statusType == statusType) {
-                s.isCompleted = value;
-                notifyListeners();
-                return;
+                s.isCompleted = !value;
               }
             }
           }
         }
       }
+      notifyListeners();
     }
   }
 
