@@ -7,13 +7,20 @@ import '../models/app_models.dart';
 import 'http_client.dart';
 
 class ApiService {
-  static const String baseUrl = 'https://www.princesscoded.net';
+  static const String baseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'https://www.princesscoded.net',
+  );
   late final http.Client _client;
   User? currentUser;
 
   ApiService() {
     _client = createHttpClient();
   }
+
+  String get _rootUrl => baseUrl.endsWith('/')
+      ? baseUrl.substring(0, baseUrl.length - 1)
+      : baseUrl;
 
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
@@ -23,7 +30,7 @@ class ApiService {
 
   Future<User?> login(String name, String pin) async {
     final res = await _client.post(
-      Uri.parse('$baseUrl/api/auth/login'),
+      Uri.parse('$_rootUrl/api/auth/login'),
       headers: _headers,
       body: jsonEncode({'name': name, 'pin': pin}),
     );
@@ -37,7 +44,7 @@ class ApiService {
 
   Future<User?> checkSession() async {
     final res = await _client.get(
-      Uri.parse('$baseUrl/api/auth/me'),
+      Uri.parse('$_rootUrl/api/auth/me'),
       headers: _headers,
     );
     if (res.statusCode == 200) {
@@ -51,7 +58,7 @@ class ApiService {
   }
 
   Future<void> logout() async {
-    await _client.post(Uri.parse('$baseUrl/api/auth/logout'), headers: _headers);
+    await _client.post(Uri.parse('$_rootUrl/api/auth/logout'), headers: _headers);
     currentUser = null;
   }
 
@@ -59,7 +66,7 @@ class ApiService {
 
   Future<List<Tracker>> getTrackers() async {
     final res = await _client.get(
-      Uri.parse('$baseUrl/api/admin/trackers'),
+      Uri.parse('$_rootUrl/api/admin/trackers'),
       headers: _headers,
     );
     final j = jsonDecode(res.body);
@@ -70,7 +77,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> getSettings(int trackerId) async {
     final res = await _client.get(
-      Uri.parse('$baseUrl/api/admin/settings?tracker_id=$trackerId'),
+      Uri.parse('$_rootUrl/api/admin/settings?tracker_id=$trackerId'),
       headers: _headers,
     );
     return jsonDecode(res.body)['data'];
@@ -80,18 +87,22 @@ class ApiService {
 
   Future<List<PowerBlock>> getPowerBlocks(int trackerId) async {
     final res = await _client.get(
-      Uri.parse('$baseUrl/api/tracker/power-blocks?tracker_id=$trackerId'),
+      Uri.parse('$_rootUrl/api/tracker/power-blocks?tracker_id=$trackerId'),
       headers: _headers,
     );
-    debugPrint('getPowerBlocks status=${res.statusCode} bodyLen=${res.body.length}');
+    if (kDebugMode) {
+      debugPrint('getPowerBlocks status=${res.statusCode} bodyLen=${res.body.length}');
+    }
     final j = jsonDecode(res.body);
-    debugPrint('getPowerBlocks success=${j['success']} dataLen=${(j['data'] as List?)?.length}');
+    if (kDebugMode) {
+      debugPrint('getPowerBlocks success=${j['success']} dataLen=${(j['data'] as List?)?.length}');
+    }
     return (j['data'] as List).map((b) => PowerBlock.fromJson(b)).toList();
   }
 
   Future<PowerBlock> getPowerBlock(int id) async {
     final res = await _client.get(
-      Uri.parse('$baseUrl/api/tracker/power-blocks/$id'),
+      Uri.parse('$_rootUrl/api/tracker/power-blocks/$id'),
       headers: _headers,
     );
     return PowerBlock.fromJson(jsonDecode(res.body)['data']);
@@ -102,7 +113,7 @@ class ApiService {
   Future<bool> updateLbdStatus(
       int lbdId, String statusType, bool isCompleted) async {
     final res = await _client.put(
-      Uri.parse('$baseUrl/api/tracker/lbds/$lbdId/status/$statusType'),
+      Uri.parse('$_rootUrl/api/tracker/lbds/$lbdId/status/$statusType'),
       headers: _headers,
       body: jsonEncode({'is_completed': isCompleted}),
     );
@@ -113,7 +124,7 @@ class ApiService {
 
   Future<bool> claimBlock(int blockId, {bool claim = true}) async {
     final res = await _client.post(
-      Uri.parse('$baseUrl/api/tracker/power-blocks/$blockId/claim'),
+      Uri.parse('$_rootUrl/api/tracker/power-blocks/$blockId/claim'),
       headers: _headers,
       body: jsonEncode({'action': claim ? 'claim' : 'unclaim'}),
     );
@@ -127,7 +138,7 @@ class ApiService {
     final body = <String, dynamic>{'power_block_id': blockId, 'is_completed': isCompleted};
     if (statusTypes != null) body['status_types'] = statusTypes;
     final res = await _client.post(
-      Uri.parse('$baseUrl/api/admin/bulk-complete'),
+      Uri.parse('$_rootUrl/api/admin/bulk-complete'),
       headers: _headers,
       body: jsonEncode(body),
     );
@@ -141,7 +152,7 @@ class ApiService {
 
   Future<List<Worker>> getWorkers({bool all = false}) async {
     final res = await _client.get(
-      Uri.parse('$baseUrl/api/workers${all ? "?all=true" : ""}'),
+      Uri.parse('$_rootUrl/api/workers${all ? "?all=true" : ""}'),
       headers: _headers,
     );
     final j = jsonDecode(res.body);
@@ -153,7 +164,7 @@ class ApiService {
   Future<List<WorkEntry>> getWorkEntries(String date, int trackerId) async {
     final res = await _client.get(
       Uri.parse(
-          '$baseUrl/api/work-entries?date=$date&tracker_id=$trackerId'),
+          '$_rootUrl/api/work-entries?date=$date&tracker_id=$trackerId'),
       headers: _headers,
     );
     final j = jsonDecode(res.body);
@@ -175,7 +186,7 @@ class ApiService {
     };
     if (trackerId != null) body['tracker_id'] = trackerId;
     final res = await _client.post(
-      Uri.parse('$baseUrl/api/work-entries'),
+      Uri.parse('$_rootUrl/api/work-entries'),
       headers: _headers,
       body: jsonEncode(body),
     );
@@ -184,7 +195,7 @@ class ApiService {
 
   Future<bool> deleteWorkEntry(int id) async {
     final res = await _client.delete(
-      Uri.parse('$baseUrl/api/work-entries/$id'),
+      Uri.parse('$_rootUrl/api/work-entries/$id'),
       headers: _headers,
     );
     return res.statusCode == 200;
@@ -194,7 +205,7 @@ class ApiService {
 
   Future<List<DailyReport>> getReports(int trackerId) async {
     final res = await _client.get(
-      Uri.parse('$baseUrl/api/reports?tracker_id=$trackerId'),
+      Uri.parse('$_rootUrl/api/reports?tracker_id=$trackerId'),
       headers: _headers,
     );
     final j = jsonDecode(res.body);
@@ -205,7 +216,7 @@ class ApiService {
 
   Future<List<Map<String, dynamic>>> getSiteMaps() async {
     final res = await _client.get(
-      Uri.parse('$baseUrl/api/map/sitemaps'),
+      Uri.parse('$_rootUrl/api/map/sitemaps'),
       headers: _headers,
     );
     if (res.statusCode == 200) {
@@ -217,7 +228,7 @@ class ApiService {
 
   Future<String?> getMapImageUrl() async {
     final res = await _client.get(
-      Uri.parse('$baseUrl/api/pdf/get-map'),
+      Uri.parse('$_rootUrl/api/pdf/get-map'),
       headers: _headers,
     );
     if (res.statusCode == 200) {
@@ -229,7 +240,7 @@ class ApiService {
 
   Future<List<dynamic>> getMapStatus(int mapId) async {
     final res = await _client.get(
-      Uri.parse('$baseUrl/api/map/map-status/$mapId'),
+      Uri.parse('$_rootUrl/api/map/map-status/$mapId'),
       headers: _headers,
     );
     if (res.statusCode == 200) {
@@ -241,7 +252,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> getReportDetail(int id) async {
     final res = await _client.get(
-      Uri.parse('$baseUrl/api/reports/$id'),
+      Uri.parse('$_rootUrl/api/reports/$id'),
       headers: _headers,
     );
     return jsonDecode(res.body)['data'];
@@ -253,7 +264,7 @@ class ApiService {
     if (date != null) body['date'] = date;
     if (trackerId != null) body['tracker_id'] = trackerId;
     final res = await _client.post(
-      Uri.parse('$baseUrl/api/reports/generate'),
+      Uri.parse('$_rootUrl/api/reports/generate'),
       headers: _headers,
       body: jsonEncode(body),
     );
@@ -266,17 +277,42 @@ class ApiService {
   // ── Admin ────────────────────────────────────────────
 
   Future<bool> saveSettings(Map<String, dynamic> data) async {
-    final res = await _client.post(
-      Uri.parse('$baseUrl/api/admin/settings'),
-      headers: _headers,
-      body: jsonEncode(data),
-    );
-    return res.statusCode == 200;
+    final trackerId = data['tracker_id'];
+    final body = <String, dynamic>{};
+    if (trackerId != null) {
+      body['tracker_id'] = trackerId;
+    }
+
+    bool ok = true;
+
+    if (data['colors'] != null) {
+      body['colors'] = data['colors'];
+      final res = await _client.put(
+        Uri.parse('$_rootUrl/api/admin/settings/colors'),
+        headers: _headers,
+        body: jsonEncode(body),
+      );
+      ok = ok && res.statusCode == 200;
+      body.remove('colors');
+    }
+
+    if (data['names'] != null) {
+      body['names'] = data['names'];
+      final res = await _client.put(
+        Uri.parse('$_rootUrl/api/admin/settings/names'),
+        headers: _headers,
+        body: jsonEncode(body),
+      );
+      ok = ok && res.statusCode == 200;
+      body.remove('names');
+    }
+
+    return ok;
   }
 
   Future<bool> updateSiteArea(int areaId, Map<String, dynamic> data) async {
     final res = await _client.put(
-      Uri.parse('$baseUrl/api/map/area/$areaId'),
+      Uri.parse('$_rootUrl/api/map/area/$areaId'),
       headers: _headers,
       body: jsonEncode(data),
     );
@@ -285,7 +321,7 @@ class ApiService {
 
   Future<bool> deleteSiteArea(int areaId) async {
     final res = await _client.delete(
-      Uri.parse('$baseUrl/api/map/area/$areaId'),
+      Uri.parse('$_rootUrl/api/map/area/$areaId'),
       headers: _headers,
     );
     return res.statusCode == 200;
@@ -293,7 +329,7 @@ class ApiService {
 
   Future<Map<String, dynamic>?> createSiteArea(Map<String, dynamic> data) async {
     final res = await _client.post(
-      Uri.parse('$baseUrl/api/map/area'),
+      Uri.parse('$_rootUrl/api/map/area'),
       headers: _headers,
       body: jsonEncode(data),
     );
@@ -306,27 +342,28 @@ class ApiService {
 
   Future<List<dynamic>> getUsers() async {
     final res = await _client.get(
-      Uri.parse('$baseUrl/api/auth/users'),
+      Uri.parse('$_rootUrl/api/auth/users'),
       headers: _headers,
     );
     if (res.statusCode == 200) {
-      return (jsonDecode(res.body)['data'] as List?) ?? [];
+      return (jsonDecode(res.body)['users'] as List?) ?? [];
     }
     return [];
   }
 
-  Future<bool> updateUserRole(int userId, String role) async {
+  Future<bool> updateUserRole(int userId, String role,
+      {List<String> permissions = const []}) async {
     final res = await _client.put(
-      Uri.parse('$baseUrl/api/auth/users/$userId'),
+      Uri.parse('$_rootUrl/api/auth/users/$userId/role'),
       headers: _headers,
-      body: jsonEncode({'role': role}),
+      body: jsonEncode({'role': role, 'permissions': permissions}),
     );
     return res.statusCode == 200;
   }
 
   Future<Map<String, dynamic>?> createUser(String name, String pin) async {
     final res = await _client.post(
-      Uri.parse('$baseUrl/api/auth/register'),
+      Uri.parse('$_rootUrl/api/auth/register'),
       headers: _headers,
       body: jsonEncode({'name': name, 'pin': pin}),
     );

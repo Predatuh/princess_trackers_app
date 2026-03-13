@@ -172,7 +172,14 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
   }
 
   Future<void> _setUserRole(int userId, String role) async {
-    await context.read<AppState>().api.updateUserRole(userId, role);
+    final permissions = role == 'assistant_admin'
+        ? const ['admin_settings', 'edit_map']
+        : const <String>[];
+    await context.read<AppState>().api.updateUserRole(
+      userId,
+      role,
+      permissions: permissions,
+    );
     if (mounted) await _loadUsers();
   }
 
@@ -808,11 +815,10 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
       );
     }
 
-    const roleOptions = ['none', 'assistant_admin', 'admin'];
+    const roleOptions = ['user', 'assistant_admin'];
     const roleLabels = {
-      'none': 'Worker',
+      'user': 'Worker',
       'assistant_admin': 'Asst. Admin',
-      'admin': 'Admin',
     };
 
     return Stack(
@@ -827,9 +833,9 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
               final user = _users[i] as Map;
               final userId = user['id'] as int? ?? 0;
               final name = user['name']?.toString() ?? 'User $userId';
-              final currentRole = user['role']?.toString() ?? 'none';
+                final currentRole = user['role']?.toString() ?? 'user';
               final safeRole =
-                  roleOptions.contains(currentRole) ? currentRole : 'none';
+                  roleOptions.contains(currentRole) ? currentRole : 'user';
 
               return Container(
                 margin: const EdgeInsets.only(bottom: 10),

@@ -5,6 +5,9 @@ class Tracker {
   final String itemNameSingular;
   final String itemNamePlural;
   final String statLabel;
+  final String dashboardProgressLabel;
+  final String dashboardBlocksLabel;
+  final String dashboardOpenLabel;
   final String icon;
   final List<String> statusTypes;
   final Map<String, String> statusColors;
@@ -18,6 +21,9 @@ class Tracker {
     this.itemNameSingular = 'Item',
     this.itemNamePlural = 'Items',
     this.statLabel = 'Total Items',
+    this.dashboardProgressLabel = 'Complete',
+    this.dashboardBlocksLabel = 'Power Blocks',
+    this.dashboardOpenLabel = 'Open Tracker',
     this.icon = '📋',
     this.statusTypes = const [],
     this.statusColors = const {},
@@ -34,6 +40,9 @@ class Tracker {
       itemNameSingular: j['item_name_singular'] ?? 'Item',
       itemNamePlural: j['item_name_plural'] ?? 'Items',
       statLabel: j['stat_label'] ?? 'Total Items',
+      dashboardProgressLabel: j['dashboard_progress_label'] ?? 'Complete',
+      dashboardBlocksLabel: j['dashboard_blocks_label'] ?? 'Power Blocks',
+      dashboardOpenLabel: j['dashboard_open_label'] ?? 'Open Tracker',
       icon: j['icon'] ?? '📋',
       statusTypes: List<String>.from(j['status_types'] ?? []),
       statusColors: Map<String, String>.from(j['status_colors'] ?? {}),

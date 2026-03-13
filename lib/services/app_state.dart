@@ -200,8 +200,7 @@ class AppState extends ChangeNotifier {
       final s = await api.getSettings(currentTracker!.id);
       statusColors = Map<String, String>.from(s['colors'] ?? {});
       statusNames = Map<String, String>.from(s['names'] ?? {});
-      columnOrder = List<String>.from(
-          (s['all_columns'] as List?)?.map((c) => c['key'].toString()) ?? []);
+      columnOrder = List<String>.from(s['all_columns'] ?? const []);
     } catch (_) {}
     notifyListeners();
   }

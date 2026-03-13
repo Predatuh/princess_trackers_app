@@ -44,23 +44,6 @@ class _DashboardTabState extends State<DashboardTab> {
       );
     }
 
-    // Compute grand totals across all trackers
-    int grandBlocks = 0, grandItems = 0, grandDone = 0, grandTotal = 0;
-    for (final t in state.trackers) {
-      final tBlocks = state.allTrackerBlocks[t.id] ?? state.blocks;
-      grandBlocks += tBlocks.length;
-      for (final b in tBlocks) {
-        grandItems += b.lbdCount;
-        for (final lbd in b.lbds) {
-          for (final s in lbd.statuses) {
-            grandTotal++;
-            if (s.isCompleted) grandDone++;
-          }
-        }
-      }
-    }
-    final grandPct = grandTotal > 0 ? grandDone / grandTotal : 0.0;
-
     return RefreshIndicator(
       color: C.cyan,
       backgroundColor: C.surface,
@@ -152,7 +135,6 @@ class _TrackerHubCard extends StatelessWidget {
         Map<String, String>.from(settings['names'] ?? tracker.statusNames);
 
     final Map<String, int> completedCounts = {};
-    int totalDone = 0, totalPossible = 0;
     for (final st in statusTypes) {
       int count = 0;
       for (final b in blocks) {
@@ -163,14 +145,12 @@ class _TrackerHubCard extends StatelessWidget {
         }
       }
       completedCounts[st] = count;
-      totalDone += count;
-      totalPossible += totalItems;
     }
     // Termed count — from lbdSummary 'term' key (matches web dashboard logic)
     final termedCount = blocks.fold<int>(
         0, (sum, b) => sum + (b.lbdSummary['term'] ?? 0));
     final statLabel = (tracker.statLabel as String?) ?? 'Termed';
-    final pct = totalPossible > 0 ? totalDone / totalPossible : 0.0;
+    final pct = totalItems > 0 ? termedCount / totalItems : 0.0;
     final barColor = pct >= 1.0
         ? C.green
         : pct >= 0.5
@@ -253,17 +233,17 @@ class _TrackerHubCard extends StatelessWidget {
               children: [
                 _StatPill(
                     value: '$totalBlocks',
-                    label: 'Blocks',
+                  label: tracker.dashboardBlocksLabel,
                     color: C.cyan),
                 const SizedBox(width: 8),
                 _StatPill(
                     value: '$termedCount',
-                    label: 'Terminated',
+                  label: statLabel,
                     color: C.green),
                 const SizedBox(width: 8),
                 _StatPill(
                     value: '${(pct * 100).toInt()}%',
-                    label: 'Complete',
+                  label: tracker.dashboardProgressLabel,
                     color: C.purple),
               ],
             ),
@@ -329,7 +309,7 @@ class _TrackerHubCard extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text('Open Tracker',
+                    Text(tracker.dashboardOpenLabel,
                       style: AppTheme.font(
                           size: 12,
                           weight: FontWeight.w600,

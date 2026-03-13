@@ -4,6 +4,7 @@ class User {
   final String username;
   final bool isAdmin;
   final String role;
+  final List<String> permissions;
 
   User({
     required this.id,
@@ -11,6 +12,7 @@ class User {
     required this.username,
     this.isAdmin = false,
     this.role = 'user',
+    this.permissions = const [],
   });
 
   factory User.fromJson(Map<String, dynamic> j) => User(
@@ -19,7 +21,14 @@ class User {
         username: j['username'] ?? '',
         isAdmin: j['is_admin'] ?? false,
         role: j['role'] ?? 'user',
+        permissions: List<String>.from(j['permissions'] ?? const []),
       );
+
+  bool get canAccessAdmin {
+    if (isAdmin || role == 'admin') return true;
+    return permissions.contains('admin_settings') ||
+        permissions.contains('edit_map');
+  }
 }
 
 class WorkEntry {

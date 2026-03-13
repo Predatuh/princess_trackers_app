@@ -50,7 +50,7 @@ class _MainShellState extends State<MainShell> {
       bottomNavigationBar: FuturisticNavBar(
         currentIndex: _tabIndex,
         onTap: (i) => setState(() => _tabIndex = i),
-        showAdmin: state.user?.role == 'admin' || state.user?.role == 'assistant_admin',
+        showAdmin: state.user?.canAccessAdmin ?? false,
       ),
     );
   }
