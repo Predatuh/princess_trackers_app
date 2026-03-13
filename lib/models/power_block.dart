@@ -6,6 +6,8 @@ class PowerBlock {
   final Map<String, int> lbdSummary;
   final List<LbdItem> lbds;
   final String? claimedBy;
+  final List<String> claimedPeople;
+  final String? claimedAt;
   final String? zone;
 
   PowerBlock({
@@ -16,6 +18,8 @@ class PowerBlock {
     this.lbdSummary = const {},
     this.lbds = const [],
     this.claimedBy,
+    this.claimedPeople = const [],
+    this.claimedAt,
     this.zone,
   });
 
@@ -24,6 +28,10 @@ class PowerBlock {
     final rawSummary = j['lbd_summary'] as Map<String, dynamic>? ?? {};
     final summary = <String, int>{};
     rawSummary.forEach((k, v) => summary[k] = toInt(v));
+    final people = (j['claimed_people'] as List? ?? const [])
+        .map((e) => e.toString())
+        .where((e) => e.trim().isNotEmpty)
+        .toList();
     return PowerBlock(
       id: toInt(j['id']),
       name: j['name'] ?? '',
@@ -32,7 +40,35 @@ class PowerBlock {
       lbdSummary: summary,
       lbds: (j['lbds'] as List? ?? []).map((e) => LbdItem.fromJson(e as Map<String, dynamic>)).toList(),
       claimedBy: j['claimed_by']?.toString(),
+      claimedPeople: people,
+      claimedAt: j['claimed_at']?.toString(),
       zone: j['zone']?.toString(),
+    );
+  }
+
+  bool get isClaimed => claimedPeople.isNotEmpty || claimedBy != null;
+
+  String? get claimedLabel {
+    if (claimedPeople.isNotEmpty) return claimedPeople.join(', ');
+    return claimedBy;
+  }
+
+  PowerBlock copyWith({
+    String? claimedBy,
+    List<String>? claimedPeople,
+    String? claimedAt,
+  }) {
+    return PowerBlock(
+      id: id,
+      name: name,
+      powerBlockNumber: powerBlockNumber,
+      lbdCount: lbdCount,
+      lbdSummary: lbdSummary,
+      lbds: lbds,
+      claimedBy: claimedBy,
+      claimedPeople: claimedPeople ?? this.claimedPeople,
+      claimedAt: claimedAt,
+      zone: zone,
     );
   }
 }

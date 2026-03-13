@@ -6,9 +6,11 @@ import '../models/tracker.dart';
 import '../models/power_block.dart';
 import '../models/app_models.dart';
 import '../services/api_service.dart';
+import '../services/realtime_sync_service.dart';
 
 class AppState extends ChangeNotifier {
   final ApiService api = ApiService();
+  late final RealtimeSyncService _realtime;
 
   // Auth
   User? user;
@@ -40,9 +42,32 @@ class AppState extends ChangeNotifier {
   late final Stream<List<ConnectivityResult>> _connectivityStream;
 
   AppState() {
+    _realtime = RealtimeSyncService(baseUrl: ApiService.baseUrl);
     _connectivityStream = Connectivity().onConnectivityChanged;
     _connectivityStream.listen(_onConnectivityChanged);
     _checkConnectivity();
+  }
+
+  @override
+  void dispose() {
+    _realtime.disconnect();
+    super.dispose();
+  }
+
+  void _connectRealtimeIfReady() {
+    if (user == null) return;
+    _realtime.connect(
+      onBlocksChanged: () {
+        if (currentTracker != null && !isOffline) {
+          loadBlocks();
+        }
+      },
+      onHubChanged: () {
+        if (trackers.isNotEmpty && !isOffline && allTrackerBlocks.isNotEmpty) {
+          loadAllTrackerData();
+        }
+      },
+    );
   }
 
   Future<void> _checkConnectivity() async {
@@ -66,11 +91,20 @@ class AppState extends ChangeNotifier {
     await _savePendingQueue();
     for (final item in toProcess) {
       try {
-        await api.updateLbdStatus(
-          item['lbdId'] as int,
-          item['statusType'] as String,
-          item['value'] as bool,
-        );
+        final type = item['type'] as String? ?? 'status';
+        if (type == 'claim') {
+          await api.claimBlock(
+            item['blockId'] as int,
+            claim: item['claim'] as bool? ?? true,
+            people: List<String>.from(item['people'] ?? const []),
+          );
+        } else {
+          await api.updateLbdStatus(
+            item['lbdId'] as int,
+            item['statusType'] as String,
+            item['value'] as bool,
+          );
+        }
       } catch (_) {
         // Re-queue on failure
         _pendingQueue.add(item);
@@ -106,6 +140,8 @@ class AppState extends ChangeNotifier {
       'lbd_count': b.lbdCount,
       'lbd_summary': b.lbdSummary,
       'claimed_by': b.claimedBy,
+      'claimed_people': b.claimedPeople,
+      'claimed_at': b.claimedAt,
       'zone': b.zone,
       'lbds': b.lbds.map((l) => {
         'id': l.id,
@@ -145,6 +181,7 @@ class AppState extends ChangeNotifier {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('lastUser', name);
         await _loadTrackers();
+        _connectRealtimeIfReady();
       } else {
         error = 'Invalid name or PIN';
       }
@@ -158,10 +195,13 @@ class AppState extends ChangeNotifier {
 
   Future<void> logout() async {
     await api.logout();
+    _realtime.disconnect();
     user = null;
     trackers = [];
     currentTracker = null;
     blocks = [];
+    allTrackerBlocks = {};
+    allTrackerSettings = {};
     notifyListeners();
   }
 
@@ -170,7 +210,10 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     await _loadPendingQueue();
     user = await api.checkSession();
-    if (user != null) await _loadTrackers();
+    if (user != null) {
+      await _loadTrackers();
+      _connectRealtimeIfReady();
+    }
     isLoading = false;
     notifyListeners();
     return user != null;
@@ -267,7 +310,12 @@ class AppState extends ChangeNotifier {
 
     if (isOffline) {
       // Queue for later sync
-      _pendingQueue.add({'lbdId': lbdId, 'statusType': statusType, 'value': value});
+      _pendingQueue.add({
+        'type': 'status',
+        'lbdId': lbdId,
+        'statusType': statusType,
+        'value': value,
+      });
       await _savePendingQueue();
       return;
     }
@@ -290,12 +338,81 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> claimBlock(int blockId) async {
-    await api.claimBlock(blockId, claim: true);
+  void _updateBlockClaim(int blockId,
+      {required String? claimedBy,
+      required List<String> claimedPeople,
+      required String? claimedAt}) {
+    blocks = blocks.map((block) {
+      if (block.id != blockId) return block;
+      return block.copyWith(
+        claimedBy: claimedBy,
+        claimedPeople: claimedPeople,
+        claimedAt: claimedAt,
+      );
+    }).toList();
+  }
+
+  Future<void> claimBlock(int blockId, {List<String> people = const []}) async {
+    final actor = user?.name;
+    final normalized = <String>[];
+    final seen = <String>{};
+    for (final person in [if (actor != null) actor, ...people]) {
+      final name = person.trim();
+      if (name.isEmpty) continue;
+      final key = name.toLowerCase();
+      if (seen.add(key)) normalized.add(name);
+    }
+
+    _updateBlockClaim(
+      blockId,
+      claimedBy: actor,
+      claimedPeople: normalized,
+      claimedAt: DateTime.now().toUtc().toIso8601String(),
+    );
+    notifyListeners();
+
+    if (currentTracker != null) {
+      await _cacheBlocks(currentTracker!.id, blocks);
+    }
+
+    if (isOffline) {
+      _pendingQueue.add({
+        'type': 'claim',
+        'blockId': blockId,
+        'claim': true,
+        'people': normalized,
+      });
+      await _savePendingQueue();
+      return;
+    }
+
+    final ok = await api.claimBlock(blockId, claim: true, people: normalized);
+    if (!ok) {
+      await loadBlocks();
+      return;
+    }
     await loadBlocks();
   }
 
   Future<void> unclaimBlock(int blockId) async {
+    _updateBlockClaim(blockId, claimedBy: null, claimedPeople: const [], claimedAt: null);
+    notifyListeners();
+
+    if (currentTracker != null) {
+      await _cacheBlocks(currentTracker!.id, blocks);
+    }
+
+    if (isOffline) {
+      _pendingQueue.add({
+        'type': 'claim',
+        'blockId': blockId,
+        'claim': false,
+        'people': const <String>[],
+      });
+      await _savePendingQueue();
+      return;
+    }
+
     await api.claimBlock(blockId, claim: false);
     await loadBlocks();
   }

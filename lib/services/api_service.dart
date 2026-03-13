@@ -122,11 +122,24 @@ class ApiService {
 
   // ── Claim ─────────────────────────────────────────────
 
-  Future<bool> claimBlock(int blockId, {bool claim = true}) async {
+  Future<List<String>> getClaimPeople() async {
+    final res = await _client.get(
+      Uri.parse('$_rootUrl/api/tracker/claim-people'),
+      headers: _headers,
+    );
+    final j = jsonDecode(res.body);
+    return List<String>.from(j['data'] ?? const []);
+  }
+
+  Future<bool> claimBlock(int blockId,
+      {bool claim = true, List<String> people = const []}) async {
     final res = await _client.post(
       Uri.parse('$_rootUrl/api/tracker/power-blocks/$blockId/claim'),
       headers: _headers,
-      body: jsonEncode({'action': claim ? 'claim' : 'unclaim'}),
+      body: jsonEncode({
+        'action': claim ? 'claim' : 'unclaim',
+        'people': people,
+      }),
     );
     return res.statusCode == 200;
   }

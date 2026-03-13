@@ -16,6 +16,104 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
   late PowerBlock block;
   bool _initialized = false;
 
+  Future<void> _showClaimDialog(AppState state) async {
+    final suggestions = await state.api.getClaimPeople();
+    if (!mounted) return;
+    final selected = <String>{...block.claimedPeople};
+    if (selected.isEmpty && state.user?.name != null) {
+      selected.add(state.user!.name);
+    }
+    final extraController = TextEditingController();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return AlertDialog(
+              backgroundColor: C.surface,
+              title: Text(
+                'Claim ${block.name}',
+                style: AppTheme.font(size: 18, weight: FontWeight.w700),
+              ),
+              content: SizedBox(
+                width: 420,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Select everyone working this block together. Add names below for people without accounts.',
+                        style: AppTheme.font(size: 12, color: C.textSub),
+                      ),
+                      const SizedBox(height: 14),
+                      ...suggestions.map((name) {
+                        final isChecked = selected.contains(name);
+                        return CheckboxListTile(
+                          value: isChecked,
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          activeColor: C.cyan,
+                          checkColor: C.bg,
+                          title: Text(
+                            name,
+                            style: AppTheme.font(size: 13, color: C.text),
+                          ),
+                          onChanged: (value) {
+                            setModalState(() {
+                              if (value ?? false) {
+                                selected.add(name);
+                              } else {
+                                selected.remove(name);
+                              }
+                            });
+                          },
+                        );
+                      }),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: extraController,
+                        minLines: 2,
+                        maxLines: 4,
+                        style: AppTheme.font(size: 13, color: C.text),
+                        decoration: InputDecoration(
+                          labelText: 'Extra names',
+                          hintText: 'Comma or new-line separated',
+                          labelStyle: AppTheme.font(size: 12, color: C.textSub),
+                          hintStyle: AppTheme.font(size: 12, color: C.textDim),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: Text('Cancel', style: AppTheme.font(color: C.textDim)),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Save Claim'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    final extras = extraController.text
+        .split(RegExp(r'[\n,]'))
+        .map((name) => name.trim())
+        .where((name) => name.isNotEmpty);
+    final people = <String>[...selected, ...extras];
+    await state.claimBlock(block.id, people: people);
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -52,17 +150,20 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
             style: AppTheme.font(size: 18, weight: FontWeight.w700)),
         actions: [
           if (state.user != null)
-            block.claimedBy == null
-                ? IconButton(
-                    icon: const Icon(Icons.flag_outlined, color: C.purple),
-                    tooltip: 'Claim',
-                    onPressed: () => state.claimBlock(block.id),
-                  )
-                : IconButton(
-                    icon: const Icon(Icons.flag, color: C.purple),
-                    tooltip: 'Unclaim',
-                    onPressed: () => state.unclaimBlock(block.id),
-                  ),
+            IconButton(
+              icon: Icon(
+                block.isClaimed ? Icons.people_alt_rounded : Icons.person_add_alt_1_rounded,
+                color: C.purple,
+              ),
+              tooltip: block.isClaimed ? 'Edit claim people' : 'Claim',
+              onPressed: () => _showClaimDialog(state),
+            ),
+          if (state.user != null && block.isClaimed)
+            IconButton(
+              icon: const Icon(Icons.flag, color: C.pink),
+              tooltip: 'Release',
+              onPressed: () => state.unclaimBlock(block.id),
+            ),
         ],
       ),
       body: block.lbds.isEmpty
@@ -123,7 +224,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                 const SizedBox(height: 4),
                 Text('$done of $total tasks complete',
                     style: AppTheme.font(size: 12, color: C.textSub)),
-                if (block.claimedBy != null) ...[
+                if (block.isClaimed) ...[
                   const SizedBox(height: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -135,7 +236,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                           color: C.purple.withValues(alpha: 0.3)),
                     ),
                     child: Text(
-                      'Claimed: ${block.claimedBy}',
+                      'Claimed: ${block.claimedLabel}',
                       style: AppTheme.font(
                           size: 11,
                           weight: FontWeight.w600,

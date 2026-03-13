@@ -65,9 +65,9 @@ class _BlocksTabState extends State<BlocksTab> {
 
     // Claim filter
     if (_claimFilter == _ClaimFilter.claimed) {
-      filtered = filtered.where((b) => b.claimedBy != null).toList();
+      filtered = filtered.where((b) => b.isClaimed).toList();
     } else if (_claimFilter == _ClaimFilter.unclaimed) {
-      filtered = filtered.where((b) => b.claimedBy == null).toList();
+      filtered = filtered.where((b) => !b.isClaimed).toList();
     }
 
     // Zone filter
@@ -546,7 +546,7 @@ class _BlockCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (block.claimedBy != null)
+                if (block.isClaimed)
                   Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 10, vertical: 4),
@@ -557,7 +557,7 @@ class _BlockCard extends StatelessWidget {
                           color: C.purple.withValues(alpha: 0.3)),
                     ),
                     child: Text(
-                      block.claimedBy!,
+                      block.claimedLabel!,
                       style: AppTheme.font(
                         size: 11,
                         weight: FontWeight.w600,
