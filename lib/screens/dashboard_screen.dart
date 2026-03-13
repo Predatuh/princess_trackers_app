@@ -85,50 +85,7 @@ class _DashboardTabState extends State<DashboardTab> {
           ),
           const SizedBox(height: 20),
 
-          // Grand overview stats
-          StaggeredItem(
-            index: 1,
-            child: Row(
-              children: [
-                StatCard(
-                  label: 'Trackers',
-                  value: state.trackers.length,
-                  accent: C.cyan,
-                  icon: Icons.dashboard_rounded,
-                ),
-                const SizedBox(width: 12),
-                StatCard(
-                  label: 'Total Items',
-                  value: grandItems,
-                  accent: C.green,
-                  icon: Icons.inventory_2_rounded,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          StaggeredItem(
-            index: 2,
-            child: Row(
-              children: [
-                StatCard(
-                  label: 'Power Blocks',
-                  value: grandBlocks,
-                  accent: C.purple,
-                  icon: Icons.widgets_rounded,
-                ),
-                const SizedBox(width: 12),
-                StatCard(
-                  label: 'Overall',
-                  value: (grandPct * 100).toInt(),
-                  accent: grandPct >= 1.0 ? C.green : C.cyan,
-                  icon: Icons.percent_rounded,
-                  subtitle: '${(grandPct * 100).toInt()}% complete',
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 8),
 
           // Tracker hub section header
           StaggeredItem(

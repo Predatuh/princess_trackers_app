@@ -61,28 +61,15 @@ class _MainShellState extends State<MainShell> {
       surfaceTintColor: Colors.transparent,
       title: Row(
         children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: const LinearGradient(
-                colors: [C.cyan, C.purple],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              boxShadow: AppTheme.neonGlow(C.cyan, blur: 12, opacity: 0.35),
-            ),
-            child: const Text(
-              '\u265B',
-              style: TextStyle(
-                fontSize: 20,
-                color: C.gold,
-                shadows: [
-                  Shadow(color: Color(0xFFFFD700), blurRadius: 10),
-                  Shadow(color: Color(0xFFFFAA00), blurRadius: 20),
-                ],
-              ),
+          const Text(
+            '\u265B',
+            style: TextStyle(
+              fontSize: 32,
+              color: C.gold,
+              shadows: [
+                Shadow(color: Color(0xFFFFD700), blurRadius: 10),
+                Shadow(color: Color(0xFFFFAA00), blurRadius: 20),
+              ],
             ),
           ),
           const SizedBox(width: 10),
