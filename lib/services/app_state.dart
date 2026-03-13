@@ -25,6 +25,10 @@ class AppState extends ChangeNotifier {
   // Power blocks for current tracker
   List<PowerBlock> blocks = [];
 
+  // All tracker block data (for dashboard hub)
+  Map<int, List<PowerBlock>> allTrackerBlocks = {};
+  Map<int, Map<String, dynamic>> allTrackerSettings = {};
+
   // Workers
   List<Worker> workers = [];
 
@@ -101,6 +105,24 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> reloadSettings() => _loadSettings();
+
+  // ── All Trackers Hub Data ─────────────────────────────
+
+  Future<void> loadAllTrackerData() async {
+    for (final t in trackers) {
+      try {
+        allTrackerBlocks[t.id] = await api.getPowerBlocks(t.id);
+      } catch (_) {
+        allTrackerBlocks[t.id] = [];
+      }
+      try {
+        allTrackerSettings[t.id] = await api.getSettings(t.id);
+      } catch (_) {
+        allTrackerSettings[t.id] = {};
+      }
+    }
+    notifyListeners();
+  }
 
   // ── Power Blocks ──────────────────────────────────────
 

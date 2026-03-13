@@ -344,11 +344,11 @@ class _LoginScreenState extends State<LoginScreen>
                 painter: _ChargeRingPainter(chargeT, logoSize / 2),
               ),
             ),
-          // Lightning bolts while loading
+          // Floating sparks while loading
           if (showSparks)
             Positioned.fill(
               child: CustomPaint(
-                painter: _LightningPainter(
+                painter: _SparkPainter(
                     _sparkCtrl.value, logoSize / 2, chargeT),
               ),
             ),
@@ -431,188 +431,195 @@ class _LoginScreenState extends State<LoginScreen>
 // ─────────────────────────────────────────────
 // LIGHTNING PAINTER — multi-segment branching bolts
 // ─────────────────────────────────────────────
-class _LightningPainter extends CustomPainter {
+// ─────────────────────────────────────────────
+// SPARK PAINTER — floating, twinkling spark particles
+// ─────────────────────────────────────────────
+class _SparkPainter extends CustomPainter {
   final double t;
   final double logoRadius;
-  final double chargeT; // 0→1 charge intensity
+  final double chargeT;
 
-  _LightningPainter(this.t, this.logoRadius, this.chargeT);
+  _SparkPainter(this.t, this.logoRadius, this.chargeT);
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final intensity = 1.0 + chargeT * 1.5; // bolts get crazier during charge
-    final boltCount = (14 * intensity).round().clamp(14, 28);
+    final intensity = 1.0 + chargeT * 1.5;
 
-    // Outer glow paint (thick, blurred)
-    final glowPaint = Paint()
-      ..strokeCap = StrokeCap.round
-      ..style = PaintingStyle.stroke
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
-    // Mid glow
-    final midPaint = Paint()
-      ..strokeCap = StrokeCap.round
-      ..style = PaintingStyle.stroke
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
-    // Core (thin, bright white)
-    final corePaint = Paint()
-      ..strokeCap = StrokeCap.round
-      ..style = PaintingStyle.stroke;
+    // ── Layer 1: Orbiting spark ring ──
+    final orbitCount = (20 * intensity).round().clamp(20, 40);
+    for (int i = 0; i < orbitCount; i++) {
+      final baseAngle = (i / orbitCount) * 2 * math.pi;
+      final speed = 0.3 + (i % 3) * 0.15;
+      final angle = baseAngle + t * 2 * math.pi * speed;
 
-    for (int i = 0; i < boltCount; i++) {
-      final baseAngle = (i / boltCount) * 2 * math.pi;
-      final wobble = math.sin(t * 2 * math.pi * 0.9 + i * 2.1) * 0.4;
-      final angle = baseAngle + wobble;
+      // Twinkle flicker
+      final twinkle = (math.sin(t * 2 * math.pi * (1.5 + i * 0.2) + i * 2.7) + 1) / 2;
+      if (twinkle < 0.15) continue;
+      final opacity = ((twinkle - 0.15) / 0.85).clamp(0.0, 1.0) * (0.6 + chargeT * 0.4);
 
-      // Per-bolt flicker
-      final flash = (math.sin(t * 2 * math.pi * (1.2 + i * 0.15) + i * 3.2) + 1) / 2;
-      if (flash < 0.2) continue;
-      final opacity = ((flash - 0.2) / 0.8).clamp(0.0, 1.0) * (0.7 + chargeT * 0.3);
-      final maxLen = (20.0 + 35.0 * flash) * intensity;
+      // Radial drift — sparks float in/out from logo
+      final drift = math.sin(t * 1.8 + i * 1.5) * (12 + chargeT * 20);
+      final radius = logoRadius + 10 + drift;
 
-      // Build a 3-4 segment jagged bolt
-      final segments = 3 + (i % 2);
-      final path = Path();
-      double cx = center.dx + logoRadius * math.cos(angle);
-      double cy = center.dy + logoRadius * math.sin(angle);
-      path.moveTo(cx, cy);
+      final x = center.dx + radius * math.cos(angle);
+      final y = center.dy + radius * math.sin(angle);
 
-      for (int s = 0; s < segments; s++) {
-        final segLen = maxLen / segments;
-        final jag = (s == segments - 1) ? 0.0 : (math.sin(t * 13 + i * 2.7 + s) * 10 * intensity);
-        final perpAngle = angle + math.pi / 2;
-        cx += segLen * math.cos(angle) + jag * math.cos(perpAngle);
-        cy += segLen * math.sin(angle) + jag * math.sin(perpAngle);
-        path.lineTo(cx, cy);
-      }
+      // Spark size — small base, grows with charge
+      final sparkSize = (1.2 + chargeT * 2.5 + twinkle * 1.5) * (0.8 + (i % 3) * 0.2);
 
-      final isCyan = i % 3 != 0;
-      final baseColor = isCyan ? C.cyan : C.purple;
+      // Color palette
+      final colors = [C.cyan, C.purple, C.gold, Colors.white];
+      final sparkColor = colors[i % colors.length];
 
-      // Draw 3-layer bolt: glow → mid → bright core
-      glowPaint
-        ..color = baseColor.withValues(alpha: opacity * 0.2)
-        ..strokeWidth = 6.0 + chargeT * 3;
-      canvas.drawPath(path, glowPaint);
-
-      midPaint
-        ..color = baseColor.withValues(alpha: opacity * 0.6)
-        ..strokeWidth = 2.5 + chargeT * 1.5;
-      canvas.drawPath(path, midPaint);
-
-      corePaint
-        ..color = Colors.white.withValues(alpha: opacity * 0.9)
-        ..strokeWidth = 1.0 + chargeT * 0.5;
-      canvas.drawPath(path, corePaint);
-
-      // Branch sparks on every 2nd bolt
-      if (i % 2 == 0 && flash > 0.45) {
-        for (int b = 0; b < (1 + chargeT * 2).round(); b++) {
-          final branchStart = segments ~/ 2; // branch from midpoint
-          final bAngle = angle + (b.isEven ? 0.6 : -0.6) + math.sin(t * 9 + i + b) * 0.3;
-          final bLen = maxLen * 0.4;
-          // Calculate the midpoint of the bolt for branching
-          final midFrac = branchStart / segments;
-          final bsx = center.dx + logoRadius * math.cos(angle) + maxLen * midFrac * math.cos(angle);
-          final bsy = center.dy + logoRadius * math.sin(angle) + maxLen * midFrac * math.sin(angle);
-          final bex = bsx + bLen * math.cos(bAngle) + math.sin(t * 15 + i + b) * 5;
-          final bey = bsy + bLen * math.sin(bAngle) + math.cos(t * 15 + i + b) * 5;
-          final bPath = Path()
-            ..moveTo(bsx, bsy)
-            ..lineTo((bsx + bex) / 2 + math.sin(t * 17 + b) * 4,
-                     (bsy + bey) / 2 + math.cos(t * 17 + b) * 4)
-            ..lineTo(bex, bey);
-          midPaint.color = baseColor.withValues(alpha: opacity * 0.35);
-          midPaint.strokeWidth = 1.5;
-          canvas.drawPath(bPath, midPaint);
-          corePaint.color = Colors.white.withValues(alpha: opacity * 0.5);
-          corePaint.strokeWidth = 0.7;
-          canvas.drawPath(bPath, corePaint);
-        }
-      }
-    }
-
-    // Orbiting energy particles (more during charge)
-    final particleCount = (8 + chargeT * 12).round();
-    for (int i = 0; i < particleCount; i++) {
-      final angle = (i / particleCount) * 2 * math.pi + t * 2 * math.pi * 0.4;
-      final orbitR = logoRadius + 14 + math.sin(t * 2.5 + i * 1.3) * 12;
-      final x = center.dx + orbitR * math.cos(angle);
-      final y = center.dy + orbitR * math.sin(angle);
-      final pOpacity = (0.3 + 0.7 * math.sin(t * 2.8 + i)).clamp(0.0, 1.0);
-      final pSize = 1.5 + chargeT * 1.5 + math.sin(t * 3.2 + i) * 0.5;
-      final pColor = i % 3 == 0 ? C.purple : (i % 3 == 1 ? C.cyan : C.gold);
+      // Outer glow halo
       canvas.drawCircle(
         Offset(x, y),
-        pSize,
+        sparkSize * 3,
         Paint()
-          ..color = pColor.withValues(alpha: pOpacity)
-          ..style = PaintingStyle.fill
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, pSize),
-      );
-    }
-
-    // Growing spark embers — tiny at start, grow bigger as login progresses
-    final sparkCount = (6 + chargeT * 18).round();
-    for (int i = 0; i < sparkCount; i++) {
-      final seed = i * 7.13 + 3.7;
-      final sparkAngle = (i / sparkCount) * 2 * math.pi + t * math.pi * 0.6 + math.sin(seed) * 0.5;
-      final drift = logoRadius + 8 + (10 + chargeT * 35) * math.sin(t * 1.5 + seed);
-      final sx = center.dx + drift * math.cos(sparkAngle);
-      final sy = center.dy + drift * math.sin(sparkAngle);
-      // Size grows from tiny dot to big ember as chargeT increases
-      final baseSize = 0.8 + chargeT * 4.0;
-      final sparkSize = baseSize + math.sin(t * 3.5 + seed) * baseSize * 0.3;
-      final sOpacity = (0.4 + chargeT * 0.5 + math.sin(t * 2.2 + i) * 0.2).clamp(0.0, 1.0);
-      final sparkColor = i % 4 == 0 ? C.gold : (i % 4 == 1 ? Colors.white : (i % 4 == 2 ? C.cyan : C.purple));
-      // Outer glow
-      canvas.drawCircle(
-        Offset(sx, sy),
-        sparkSize * 2.5,
-        Paint()
-          ..color = sparkColor.withValues(alpha: sOpacity * 0.15)
+          ..color = sparkColor.withValues(alpha: opacity * 0.1)
           ..style = PaintingStyle.fill
           ..maskFilter = MaskFilter.blur(BlurStyle.normal, sparkSize * 3),
       );
+      // Mid glow
+      canvas.drawCircle(
+        Offset(x, y),
+        sparkSize * 1.5,
+        Paint()
+          ..color = sparkColor.withValues(alpha: opacity * 0.3)
+          ..style = PaintingStyle.fill
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, sparkSize * 1.5),
+      );
       // Bright core
       canvas.drawCircle(
-        Offset(sx, sy),
-        sparkSize,
+        Offset(x, y),
+        sparkSize * 0.6,
         Paint()
-          ..color = sparkColor.withValues(alpha: sOpacity * 0.9)
+          ..color = Colors.white.withValues(alpha: opacity * 0.9)
+          ..style = PaintingStyle.fill,
+      );
+
+      // 4-point star cross on brighter sparks
+      if (twinkle > 0.6 && sparkSize > 2) {
+        final crossLen = sparkSize * 2.5;
+        final crossOpacity = opacity * 0.35;
+        final crossPaint = Paint()
+          ..color = sparkColor.withValues(alpha: crossOpacity)
+          ..strokeWidth = 0.6
+          ..strokeCap = StrokeCap.round
+          ..style = PaintingStyle.stroke
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 1.5);
+        // Horizontal
+        canvas.drawLine(
+          Offset(x - crossLen, y), Offset(x + crossLen, y), crossPaint);
+        // Vertical
+        canvas.drawLine(
+          Offset(x, y - crossLen), Offset(x, y + crossLen), crossPaint);
+      }
+    }
+
+    // ── Layer 2: Rising embers (float upward like fire sparks) ──
+    final emberCount = (10 + chargeT * 18).round();
+    for (int i = 0; i < emberCount; i++) {
+      final seed = i * 5.37 + 2.1;
+      final phase = (t * (0.4 + (i % 4) * 0.1) + seed) % 1.0;
+
+      // Rise from bottom of orbit to top, then reset
+      final riseAngle = -math.pi / 2 + math.sin(seed) * 0.8; // mostly upward
+      final spreadAngle = (i / emberCount) * 2 * math.pi + math.sin(seed * 1.3) * 0.5;
+      final startR = logoRadius + 5;
+      final travelDist = (30 + chargeT * 50) * phase;
+
+      final x = center.dx + startR * math.cos(spreadAngle) +
+          travelDist * math.cos(riseAngle) + math.sin(t * 3 + seed) * 8;
+      final y = center.dy + startR * math.sin(spreadAngle) +
+          travelDist * math.sin(riseAngle);
+
+      // Fade in quickly, fade out slowly
+      final fadeIn = (phase * 4).clamp(0.0, 1.0);
+      final fadeOut = (1 - phase).clamp(0.0, 1.0);
+      final emberOpacity = fadeIn * fadeOut * (0.5 + chargeT * 0.5);
+
+      final emberSize = (0.6 + chargeT * 2.0) * (1 - phase * 0.5);
+      final emberColors = [C.gold, C.cyan, C.purple, Colors.white, C.pink];
+      final emberColor = emberColors[i % emberColors.length];
+
+      // Glow
+      canvas.drawCircle(
+        Offset(x, y),
+        emberSize * 2,
+        Paint()
+          ..color = emberColor.withValues(alpha: emberOpacity * 0.2)
           ..style = PaintingStyle.fill
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, sparkSize * 0.5),
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, emberSize * 2.5),
+      );
+      // Core
+      canvas.drawCircle(
+        Offset(x, y),
+        emberSize,
+        Paint()
+          ..color = emberColor.withValues(alpha: emberOpacity * 0.85)
+          ..style = PaintingStyle.fill
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, emberSize * 0.4),
       );
     }
 
-    // Electric arc web connecting nearby bolts (appears during charge)
-    if (chargeT > 0.3) {
-      final arcOpacity = ((chargeT - 0.3) / 0.7).clamp(0.0, 1.0) * 0.3;
-      final arcPaint = Paint()
-        ..color = C.cyan.withValues(alpha: arcOpacity)
-        ..strokeWidth = 0.8
-        ..style = PaintingStyle.stroke
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2);
-      for (int i = 0; i < boltCount; i += 2) {
-        final a1 = (i / boltCount) * 2 * math.pi;
-        final a2 = ((i + 1) / boltCount) * 2 * math.pi;
-        final r = logoRadius + 10 + math.sin(t * 3.5 + i) * 8;
-        final p1 = Offset(center.dx + r * math.cos(a1), center.dy + r * math.sin(a1));
-        final p2 = Offset(center.dx + r * math.cos(a2), center.dy + r * math.sin(a2));
-        final controlPt = Offset(
-          (p1.dx + p2.dx) / 2 + math.sin(t * 5.5 + i) * 12,
-          (p1.dy + p2.dy) / 2 + math.cos(t * 5.5 + i) * 12,
-        );
-        final arcPath = Path()
-          ..moveTo(p1.dx, p1.dy)
-          ..quadraticBezierTo(controlPt.dx, controlPt.dy, p2.dx, p2.dy);
-        canvas.drawPath(arcPath, arcPaint);
+    // ── Layer 3: Shimmering dust ring (subtle sparkle halo) ──
+    final dustCount = (30 + chargeT * 20).round();
+    for (int i = 0; i < dustCount; i++) {
+      final angle = (i / dustCount) * 2 * math.pi + t * math.pi * 0.2;
+      final wobble = math.sin(t * 2.5 + i * 1.7) * 6;
+      final r = logoRadius + 4 + wobble + (i % 5) * 2;
+      final x = center.dx + r * math.cos(angle);
+      final y = center.dy + r * math.sin(angle);
+
+      final flicker = (math.sin(t * 5 + i * 3.3) + 1) / 2;
+      if (flicker < 0.4) continue;
+      final dustOpacity = ((flicker - 0.4) / 0.6) * 0.3;
+      final dustSize = 0.5 + flicker * 0.8;
+
+      canvas.drawCircle(
+        Offset(x, y),
+        dustSize,
+        Paint()
+          ..color = Colors.white.withValues(alpha: dustOpacity)
+          ..style = PaintingStyle.fill,
+      );
+    }
+
+    // ── Layer 4: Charge-up spark trails (during charge phase) ──
+    if (chargeT > 0.2) {
+      final trailCount = ((chargeT - 0.2) / 0.8 * 12).round().clamp(0, 12);
+      for (int i = 0; i < trailCount; i++) {
+        final angle = (i / 12) * 2 * math.pi + t * math.pi * 1.5;
+        final trailR = logoRadius + 8;
+
+        // Draw a trail of 4-5 diminishing dots spiraling inward
+        for (int d = 0; d < 5; d++) {
+          final dOffset = d * 0.04;
+          final da = angle - dOffset * math.pi * 2;
+          final dr = trailR + d * 3;
+          final dx = center.dx + dr * math.cos(da);
+          final dy = center.dy + dr * math.sin(da);
+          final dSize = (2.0 - d * 0.3) * chargeT;
+          final dOpacity = (0.6 - d * 0.1) * chargeT;
+
+          final trailColor = i % 2 == 0 ? C.cyan : C.gold;
+          canvas.drawCircle(
+            Offset(dx, dy),
+            dSize.clamp(0.3, 5.0),
+            Paint()
+              ..color = trailColor.withValues(alpha: dOpacity.clamp(0.0, 1.0))
+              ..style = PaintingStyle.fill
+              ..maskFilter = MaskFilter.blur(BlurStyle.normal, dSize),
+          );
+        }
       }
     }
   }
 
   @override
-  bool shouldRepaint(_LightningPainter old) =>
+  bool shouldRepaint(_SparkPainter old) =>
       old.t != t || old.chargeT != chargeT;
 }
 
@@ -762,38 +769,36 @@ class _OverloadExplosionPainter extends CustomPainter {
       }
     }
 
-    // === Lightning bolts radiating outward during explosion ===
+    // === Spark burst radiating outward during explosion ===
     if (t < 0.5) {
-      const boltCount = 8;
-      final boltOpacity = (1 - t * 2).clamp(0.0, 1.0);
-      final boltPaint = Paint()
-        ..strokeWidth = 2.5
-        ..strokeCap = StrokeCap.round
-        ..style = PaintingStyle.stroke
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
-      final boltCorePaint = Paint()
-        ..strokeWidth = 1.0
-        ..strokeCap = StrokeCap.round
-        ..style = PaintingStyle.stroke;
-      for (int i = 0; i < boltCount; i++) {
-        final angle = (i / boltCount) * 2 * math.pi;
-        final boltLen = (40 + t * 120) * scale;
-        final sx = center.dx + logoRadius * 0.3 * math.cos(angle);
-        final sy = center.dy + logoRadius * 0.3 * math.sin(angle);
-        final path = Path()..moveTo(sx, sy);
-        double bx = sx, by = sy;
-        for (int s = 0; s < 5; s++) {
-          final segLen = boltLen / 5;
-          final jag = math.sin(t * 30 + i * 3 + s * 2) * 15;
-          final perpA = angle + math.pi / 2;
-          bx += segLen * math.cos(angle) + jag * math.cos(perpA);
-          by += segLen * math.sin(angle) + jag * math.sin(perpA);
-          path.lineTo(bx, by);
-        }
-        boltPaint.color = C.cyan.withValues(alpha: boltOpacity * 0.5);
-        canvas.drawPath(path, boltPaint);
-        boltCorePaint.color = Colors.white.withValues(alpha: boltOpacity * 0.8);
-        canvas.drawPath(path, boltCorePaint);
+      const sparkBurstCount = 24;
+      final burstOpacity = (1 - t * 2).clamp(0.0, 1.0);
+      for (int i = 0; i < sparkBurstCount; i++) {
+        final angle = (i / sparkBurstCount) * 2 * math.pi;
+        final dist = (30 + t * 150) * scale;
+        final x = center.dx + dist * math.cos(angle);
+        final y = center.dy + dist * math.sin(angle);
+        final sSize = (2.0 + (i % 3) * 1.0) * (1 - t);
+        final colors = [C.cyan, C.gold, C.purple, Colors.white];
+        final sColor = colors[i % colors.length];
+
+        // Glow
+        canvas.drawCircle(
+          Offset(x, y),
+          sSize * 2.5,
+          Paint()
+            ..color = sColor.withValues(alpha: burstOpacity * 0.25)
+            ..style = PaintingStyle.fill
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, sSize * 2),
+        );
+        // Core
+        canvas.drawCircle(
+          Offset(x, y),
+          sSize,
+          Paint()
+            ..color = Colors.white.withValues(alpha: burstOpacity * 0.9)
+            ..style = PaintingStyle.fill,
+        );
       }
     }
 
