@@ -73,7 +73,22 @@ class _MainShellState extends State<MainShell> {
               ),
               boxShadow: AppTheme.neonGlow(C.cyan, blur: 12, opacity: 0.35),
             ),
-            child: const Icon(Icons.bolt_rounded, size: 18, color: Colors.white),
+            child: Transform.rotate(
+              angle: -0.3, // slight tilt like the web version
+              child: ClipOval(
+                child: Image.asset(
+                  'assets/logo.png',
+                  width: 34,
+                  height: 34,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => const Icon(
+                    Icons.workspace_premium_rounded,
+                    size: 18,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
           ),
           const SizedBox(width: 10),
           Column(
