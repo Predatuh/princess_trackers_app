@@ -209,6 +209,10 @@ class _TrackerHubCard extends StatelessWidget {
       totalDone += count;
       totalPossible += totalItems;
     }
+    // Termed count — from lbdSummary 'term' key (matches web dashboard logic)
+    final termedCount = blocks.fold<int>(
+        0, (sum, b) => sum + (b.lbdSummary['term'] ?? 0));
+    final statLabel = (tracker.statLabel as String?) ?? 'Termed';
     final pct = totalPossible > 0 ? totalDone / totalPossible : 0.0;
     final barColor = pct >= 1.0
         ? C.green
@@ -301,8 +305,8 @@ class _TrackerHubCard extends StatelessWidget {
                     color: C.green),
                 const SizedBox(width: 8),
                 _StatPill(
-                    value: '$totalDone',
-                    label: 'Done',
+                    value: '$termedCount',
+                    label: statLabel,
                     color: C.purple),
               ],
             ),
