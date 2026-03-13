@@ -26,6 +26,20 @@ class ApiService {
         'Content-Type': 'application/json',
       };
 
+  Map<String, dynamic> _decodeJsonResponse(http.Response res, String operation) {
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception('$operation failed (${res.statusCode})');
+    }
+    if (res.body.isEmpty) {
+      throw Exception('$operation returned an empty response');
+    }
+    final decoded = jsonDecode(res.body);
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception('$operation returned an unexpected response');
+    }
+    return decoded;
+  }
+
   // ── Auth ──────────────────────────────────────────────
 
   Future<User?> login(String name, String pin) async {
@@ -69,7 +83,7 @@ class ApiService {
       Uri.parse('$_rootUrl/api/admin/trackers'),
       headers: _headers,
     );
-    final j = jsonDecode(res.body);
+    final j = _decodeJsonResponse(res, 'Load trackers');
     return (j['data'] as List).map((t) => Tracker.fromJson(t)).toList();
   }
 
@@ -80,7 +94,7 @@ class ApiService {
       Uri.parse('$_rootUrl/api/admin/settings?tracker_id=$trackerId'),
       headers: _headers,
     );
-    return jsonDecode(res.body)['data'];
+    return _decodeJsonResponse(res, 'Load settings')['data'];
   }
 
   // ── Power Blocks ──────────────────────────────────────
@@ -93,7 +107,7 @@ class ApiService {
     if (kDebugMode) {
       debugPrint('getPowerBlocks status=${res.statusCode} bodyLen=${res.body.length}');
     }
-    final j = jsonDecode(res.body);
+    final j = _decodeJsonResponse(res, 'Load power blocks');
     if (kDebugMode) {
       debugPrint('getPowerBlocks success=${j['success']} dataLen=${(j['data'] as List?)?.length}');
     }
@@ -105,7 +119,7 @@ class ApiService {
       Uri.parse('$_rootUrl/api/tracker/power-blocks/$id'),
       headers: _headers,
     );
-    return PowerBlock.fromJson(jsonDecode(res.body)['data']);
+    return PowerBlock.fromJson(_decodeJsonResponse(res, 'Load power block')['data']);
   }
 
   // ── LBD Status ────────────────────────────────────────
@@ -127,7 +141,7 @@ class ApiService {
       Uri.parse('$_rootUrl/api/tracker/claim-people'),
       headers: _headers,
     );
-    final j = jsonDecode(res.body);
+    final j = _decodeJsonResponse(res, 'Load claim people');
     return List<String>.from(j['data'] ?? const []);
   }
 
@@ -168,7 +182,7 @@ class ApiService {
       Uri.parse('$_rootUrl/api/workers${all ? "?all=true" : ""}'),
       headers: _headers,
     );
-    final j = jsonDecode(res.body);
+    final j = _decodeJsonResponse(res, 'Load workers');
     return (j['data'] as List).map((w) => Worker.fromJson(w)).toList();
   }
 
@@ -180,7 +194,7 @@ class ApiService {
           '$_rootUrl/api/work-entries?date=$date&tracker_id=$trackerId'),
       headers: _headers,
     );
-    final j = jsonDecode(res.body);
+    final j = _decodeJsonResponse(res, 'Load work entries');
     return (j['data'] as List).map((e) => WorkEntry.fromJson(e)).toList();
   }
 
