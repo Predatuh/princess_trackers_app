@@ -73,9 +73,16 @@ class _MainShellState extends State<MainShell> {
               ),
               boxShadow: AppTheme.neonGlow(C.cyan, blur: 12, opacity: 0.35),
             ),
-            child: Transform.rotate(
-              angle: -0.3,
-              child: const Text('👑', style: TextStyle(fontSize: 18)),
+            child: const Text(
+              '\u265B',
+              style: TextStyle(
+                fontSize: 20,
+                color: C.gold,
+                shadows: [
+                  Shadow(color: Color(0xFFFFD700), blurRadius: 10),
+                  Shadow(color: Color(0xFFFFAA00), blurRadius: 20),
+                ],
+              ),
             ),
           ),
           const SizedBox(width: 10),
