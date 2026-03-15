@@ -20,6 +20,7 @@ class MapTab extends StatefulWidget {
 class _MapTabState extends State<MapTab> {
   bool _loading = true;
   bool _switchingTracker = false;
+  bool _showLabels = false;
   String? _error;
   List<dynamic> _areas = [];
   List<dynamic> _statusData = [];
@@ -33,6 +34,13 @@ class _MapTabState extends State<MapTab> {
   int? _activeTrackerId;
 
   final TransformationController _transformCtrl = TransformationController();
+
+  double get _currentScale {
+    final matrix = _transformCtrl.value.storage;
+    final scaleX = matrix[0].abs();
+    final scaleY = matrix[5].abs();
+    return math.max(scaleX, scaleY);
+  }
 
   @override
   void initState() {
@@ -322,6 +330,12 @@ class _MapTabState extends State<MapTab> {
                 onTap: () =>
                     _transformCtrl.value = Matrix4.identity(),
               ),
+              const SizedBox(height: 8),
+              _floatingGlassButton(
+                icon: _showLabels ? Icons.text_fields_rounded : Icons.text_fields_outlined,
+                active: _showLabels,
+                onTap: () => setState(() => _showLabels = !_showLabels),
+              ),
               // Admin delete mode toggle
               if (_isAdmin) ...[
                 const SizedBox(height: 8),
@@ -430,6 +444,7 @@ class _MapTabState extends State<MapTab> {
   Widget _floatingGlassButton({
     required IconData icon,
     required VoidCallback onTap,
+    bool active = false,
   }) {
     return GestureDetector(
       onTap: onTap,
@@ -441,11 +456,16 @@ class _MapTabState extends State<MapTab> {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: C.surface.withValues(alpha: 0.8),
+              color: active
+                  ? C.cyan.withValues(alpha: 0.2)
+                  : C.surface.withValues(alpha: 0.8),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0x18FFFFFF)),
+              border: Border.all(
+                color: active ? C.cyan.withValues(alpha: 0.6) : const Color(0x18FFFFFF),
+                width: active ? 1.4 : 1,
+              ),
             ),
-            child: Icon(icon, color: C.cyan, size: 20),
+            child: Icon(icon, color: active ? C.cyan : C.cyan, size: 20),
           ),
         ),
       ),
@@ -463,6 +483,9 @@ class _MapTabState extends State<MapTab> {
     final bboxW = _toDouble(area['bbox_w']) ?? 2.0;
     final bboxH = _toDouble(area['bbox_h']) ?? 2.0;
     final areaName = area['name']?.toString() ?? '';
+    final markerWidth = mapW * bboxW / 100;
+    final markerHeight = mapH * bboxH / 100;
+    final showLabel = _showLabels || _currentScale >= 2.1 || (markerWidth >= 42 && markerHeight >= 26);
 
     Color markerColor = Colors.grey;
     String blockName = areaName;
@@ -504,8 +527,8 @@ class _MapTabState extends State<MapTab> {
     return Positioned(
       left: mapW * bboxX / 100,
       top: mapH * bboxY / 100,
-      width: mapW * bboxW / 100,
-      height: mapH * bboxH / 100,
+      width: markerWidth,
+      height: markerHeight,
       child: GestureDetector(
         onTap: () {
           if (_adminDeleteMode) {
@@ -528,26 +551,28 @@ class _MapTabState extends State<MapTab> {
             ],
           ),
           alignment: Alignment.center,
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Padding(
-              padding: const EdgeInsets.all(1),
-              child: Text(
-                blockName,
-                style: TextStyle(
-                  color: _hexToColor(area['label_color']) ?? Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  shadows: const [
-                    Shadow(color: Colors.black87, blurRadius: 3)
-                  ],
-                ),
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ),
+          child: showLabel
+              ? FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Padding(
+                    padding: const EdgeInsets.all(1),
+                    child: Text(
+                      blockName,
+                      style: TextStyle(
+                        color: _hexToColor(area['label_color']) ?? Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        shadows: const [
+                          Shadow(color: Colors.black87, blurRadius: 3)
+                        ],
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                )
+              : null,
         ),
       ),
     );
