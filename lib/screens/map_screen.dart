@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/tracker.dart';
 import '../services/app_state.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
@@ -18,6 +19,7 @@ class MapTab extends StatefulWidget {
 
 class _MapTabState extends State<MapTab> {
   bool _loading = true;
+  bool _switchingTracker = false;
   String? _error;
   List<dynamic> _areas = [];
   List<dynamic> _statusData = [];
@@ -28,6 +30,7 @@ class _MapTabState extends State<MapTab> {
   double _mapH = 0;
   bool _adminDeleteMode = false;
   Map<String, dynamic>? _lastDeleted; // ignore: unused_field - kept for undo reference
+  int? _activeTrackerId;
 
   final TransformationController _transformCtrl = TransformationController();
 
@@ -35,6 +38,16 @@ class _MapTabState extends State<MapTab> {
   void initState() {
     super.initState();
     _loadMap();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final trackerId = context.watch<AppState>().currentTracker?.id;
+    if (_activeTrackerId != null && trackerId != null && trackerId != _activeTrackerId) {
+      _loadMap();
+    }
+    _activeTrackerId = trackerId;
   }
 
   @override
@@ -47,6 +60,7 @@ class _MapTabState extends State<MapTab> {
     setState(() {
       _loading = true;
       _error = null;
+      _activeTrackerId = context.read<AppState>().currentTracker?.id;
     });
     try {
       final state = context.read<AppState>();
@@ -105,8 +119,34 @@ class _MapTabState extends State<MapTab> {
     return c.future;
   }
 
+  Future<void> _handleTrackerSwitch(Tracker tracker) async {
+    final state = context.read<AppState>();
+    if (_switchingTracker || state.currentTracker?.id == tracker.id) {
+      return;
+    }
+
+    setState(() {
+      _switchingTracker = true;
+    });
+
+    try {
+      await state.switchTracker(tracker);
+      if (!mounted) return;
+      await _loadMap();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _switchingTracker = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final trackers = state.trackers;
+
     if (_loading) {
       return const Center(
         child: CircularProgressIndicator(color: C.cyan, strokeWidth: 2),
@@ -160,6 +200,39 @@ class _MapTabState extends State<MapTab> {
       children: [
         Column(
           children: [
+            if (trackers.length > 1)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: C.bg.withValues(alpha: 0.92),
+                  border: const Border(
+                    bottom: BorderSide(color: Color(0x14FFFFFF)),
+                  ),
+                ),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      Icon(Icons.swap_horiz_rounded, size: 14, color: C.textDim),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Tracker:',
+                        style: AppTheme.font(size: 11, color: C.textSub, weight: FontWeight.w600),
+                      ),
+                      const SizedBox(width: 8),
+                      for (final tracker in trackers)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: _trackerChip(
+                            tracker: tracker,
+                            active: state.currentTracker?.id == tracker.id,
+                            onTap: () => _handleTrackerSwitch(tracker),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
             _buildLegend(),
             Expanded(
               child: LayoutBuilder(
@@ -288,6 +361,35 @@ class _MapTabState extends State<MapTab> {
             ],
           ),
         ),
+        if (_switchingTracker)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Container(
+                color: Colors.black.withValues(alpha: 0.18),
+                alignment: Alignment.center,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: C.surface.withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0x18FFFFFF)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: C.cyan),
+                      ),
+                      const SizedBox(width: 10),
+                      Text('Switching tracker…', style: AppTheme.font(size: 13, color: C.text)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
         // Delete mode indicator
         if (_adminDeleteMode)
           Positioned(
@@ -551,6 +653,46 @@ class _MapTabState extends State<MapTab> {
             color: active ? C.cyan : C.textSub,
             weight: active ? FontWeight.w700 : FontWeight.w500,
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _trackerChip({
+    required Tracker tracker,
+    required bool active,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(
+          color: active ? C.cyan.withValues(alpha: 0.2) : const Color(0x0AFFFFFF),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: active ? C.cyan : const Color(0x20FFFFFF),
+            width: active ? 1.5 : 1,
+          ),
+          boxShadow: active
+              ? [BoxShadow(color: C.cyan.withValues(alpha: 0.2), blurRadius: 8)]
+              : [],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(tracker.icon, style: const TextStyle(fontSize: 12)),
+            const SizedBox(width: 6),
+            Text(
+              tracker.name,
+              style: AppTheme.font(
+                size: 11,
+                color: active ? C.cyan : C.textSub,
+                weight: active ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ],
         ),
       ),
     );
