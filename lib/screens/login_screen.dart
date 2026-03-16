@@ -1,11 +1,12 @@
 ﻿import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 
-enum _AuthPhase { idle, loading, success }
+enum _AuthMode { signIn, register, verify }
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -15,119 +16,257 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen>
-    with TickerProviderStateMixin {
+    with SingleTickerProviderStateMixin {
   final _nameCtrl = TextEditingController();
   final _pinCtrl = TextEditingController();
-  _AuthPhase _phase = _AuthPhase.idle;
+  final _emailCtrl = TextEditingController();
+  final _jobTokenCtrl = TextEditingController();
+  final _verificationCodeCtrl = TextEditingController();
+  bool _rememberLogin = false;
+  bool _didApplyRouteArgs = false;
+  bool _submitting = false;
+  _AuthMode _mode = _AuthMode.signIn;
   String? _error;
+  String? _info;
+  static const _logoHeroTag = 'login-logo-hero';
 
-  // Initial entrance fade
-  late AnimationController _enterCtrl;
-  late Animation<double> _enterFade;
-
-  // Zoom transition (0=idle, 1=fully zoomed)
-  late AnimationController _transCtrl;
-  late Animation<double> _formFade;
-  late Animation<double> _logoScale;
-  late Animation<double> _overlayFade;
-
-  // Continuous sparks (fast cycle for electric feel)
-  late AnimationController _sparkCtrl;
-
-  // Charging energy buildup
-  late AnimationController _chargeCtrl;
-
-  // One-shot overload explosion (longer for dramatic effect)
-  late AnimationController _explodeCtrl;
+  late AnimationController _lightningCtrl;
 
   @override
   void initState() {
     super.initState();
-    _enterCtrl = AnimationController(
+    _loadSavedLogin();
+    _lightningCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1000),
-    )..forward();
-    _enterFade =
-        CurvedAnimation(parent: _enterCtrl, curve: Curves.easeOut);
-
-    _transCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 750),
-    );
-    _formFade = Tween(begin: 1.0, end: 0.0).animate(CurvedAnimation(
-      parent: _transCtrl,
-      curve: const Interval(0.0, 0.4, curve: Curves.easeIn),
-    ));
-    _logoScale = Tween(begin: 0.0, end: 1.0).animate(CurvedAnimation(
-      parent: _transCtrl,
-      curve: const Interval(0.2, 1.0, curve: Curves.easeOutCubic),
-    ));
-    _overlayFade = Tween(begin: 0.0, end: 1.0).animate(CurvedAnimation(
-      parent: _transCtrl,
-      curve: const Interval(0.1, 0.55, curve: Curves.easeOut),
-    ));
-
-    _sparkCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2800),
+      duration: const Duration(milliseconds: 3200),
     )..repeat();
+  }
 
-    _chargeCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2400),
-    );
-
-    _explodeCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1100),
-    );
-    _explodeCtrl.addStatusListener((s) {
-      if (s == AnimationStatus.completed && mounted) {
-        Navigator.pushReplacementNamed(context, '/home');
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didApplyRouteArgs) return;
+    _didApplyRouteArgs = true;
+    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    if (args == null) return;
+    final mode = (args['authMode'] as String? ?? '').trim();
+    setState(() {
+      if ((args['name'] as String?)?.isNotEmpty ?? false) {
+        _nameCtrl.text = args['name'] as String;
+      }
+      if ((args['pin'] as String?)?.isNotEmpty ?? false) {
+        _pinCtrl.text = args['pin'] as String;
+      }
+      if ((args['email'] as String?)?.isNotEmpty ?? false) {
+        _emailCtrl.text = args['email'] as String;
+      }
+      _info = (args['message'] as String?)?.trim();
+      _error = null;
+      _submitting = false;
+      if (mode == 'verify') {
+        _mode = _AuthMode.verify;
+      } else if (mode == 'register') {
+        _mode = _AuthMode.register;
       }
     });
+  }
+
+  Future<void> _loadSavedLogin() async {
+    final prefs = await SharedPreferences.getInstance();
+    final rememberLogin = prefs.getBool('rememberLogin') ?? false;
+    if (!mounted) return;
+    setState(() {
+      _rememberLogin = rememberLogin;
+      if (rememberLogin) {
+        _nameCtrl.text = prefs.getString('savedLoginName') ?? '';
+        _pinCtrl.text = prefs.getString('savedLoginPin') ?? '';
+      } else {
+        _nameCtrl.text = prefs.getString('lastUser') ?? '';
+      }
+    });
+  }
+
+  Future<void> _persistSavedLogin() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('rememberLogin', _rememberLogin);
+    if (_rememberLogin) {
+      await prefs.setString('savedLoginName', _nameCtrl.text.trim());
+      await prefs.setString('savedLoginPin', _pinCtrl.text.trim());
+      return;
+    }
+    await prefs.remove('savedLoginName');
+    await prefs.remove('savedLoginPin');
   }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
     _pinCtrl.dispose();
-    _enterCtrl.dispose();
-    _transCtrl.dispose();
-    _sparkCtrl.dispose();
-    _chargeCtrl.dispose();
-    _explodeCtrl.dispose();
+    _emailCtrl.dispose();
+    _jobTokenCtrl.dispose();
+    _verificationCodeCtrl.dispose();
+    _lightningCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _login() async {
-    if (_phase != _AuthPhase.idle) return;
-    setState(() {
-      _phase = _AuthPhase.loading;
-      _error = null;
-    });
-    _transCtrl.forward();
+  Future<void> _submit() async {
+    if (_submitting) return;
+    final name = _nameCtrl.text.trim();
+    final pin = _pinCtrl.text.trim();
+    final email = _emailCtrl.text.trim();
+    final jobToken = _jobTokenCtrl.text.trim();
+    final code = _verificationCodeCtrl.text.trim();
 
-    final state = context.read<AppState>();
-    final ok =
-        await state.login(_nameCtrl.text.trim(), _pinCtrl.text.trim());
+    switch (_mode) {
+      case _AuthMode.signIn:
+        if (name.isEmpty || pin.isEmpty) {
+          setState(() => _error = 'Enter name and PIN');
+          return;
+        }
+        break;
+      case _AuthMode.register:
+        if (name.isEmpty || pin.isEmpty || email.isEmpty || jobToken.isEmpty) {
+          setState(() => _error = 'Name, PIN, recovery email, and site token are required');
+          return;
+        }
+        if (pin.length != 4 || int.tryParse(pin) == null) {
+          setState(() => _error = 'PIN must be exactly 4 digits');
+          return;
+        }
+        if (!email.contains('@')) {
+          setState(() => _error = 'Enter a valid recovery email');
+          return;
+        }
+        break;
+      case _AuthMode.verify:
+        if (email.isEmpty || code.isEmpty) {
+          setState(() => _error = 'Enter your email and verification code');
+          return;
+        }
+        break;
+    }
+
+    setState(() {
+      _submitting = true;
+      _error = null;
+      if (_mode != _AuthMode.verify) {
+        _info = null;
+      }
+    });
+
+    if (_mode != _AuthMode.verify) {
+      await _persistSavedLogin();
+    }
     if (!mounted) return;
 
-    if (ok) {
-      setState(() => _phase = _AuthPhase.success);
-      // Start charging buildup
-      _chargeCtrl.forward();
-      await Future.delayed(const Duration(milliseconds: 2400));
-      // Then the overload explosion
-      if (mounted) _explodeCtrl.forward();
-    } else {
-      await _transCtrl.reverse();
-      if (mounted) {
-        setState(() {
-          _phase = _AuthPhase.idle;
-          _error = state.error;
-        });
+    Navigator.pushReplacementNamed(context, '/video', arguments: {
+      'authAction': switch (_mode) {
+        _AuthMode.signIn => 'signIn',
+        _AuthMode.register => 'register',
+        _AuthMode.verify => 'verify',
+      },
+      'name': name,
+      'pin': pin,
+      'email': email,
+      'jobToken': jobToken,
+      'code': code,
+      'heroTag': _logoHeroTag,
+    });
+  }
+
+  Future<void> _resendVerification() async {
+    if (_submitting) return;
+    final email = _emailCtrl.text.trim();
+    if (email.isEmpty) {
+      setState(() => _error = 'Enter your recovery email first');
+      return;
+    }
+
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+
+    final result = await context.read<AppState>().resendVerification(email);
+    if (!mounted) return;
+
+    setState(() {
+      _submitting = false;
+      if (result.verificationRequired) {
+        final previewCode = (result.previewCode ?? '').trim();
+        _info = [
+          result.message ?? 'A new verification code has been sent.',
+          if (previewCode.isNotEmpty) 'Preview code: $previewCode',
+        ].join(' ');
+      } else {
+        _error = result.error ?? 'Could not resend verification code';
       }
+    });
+  }
+
+  void _switchMode(_AuthMode nextMode) {
+    setState(() {
+      _mode = nextMode;
+      _error = null;
+      if (nextMode != _AuthMode.verify) {
+        _info = null;
+        _verificationCodeCtrl.clear();
+      }
+    });
+  }
+
+  String get _title {
+    switch (_mode) {
+      case _AuthMode.register:
+        return 'Create Account';
+      case _AuthMode.verify:
+        return 'Verify Email';
+      case _AuthMode.signIn:
+        return 'Sign In';
+    }
+  }
+
+  String get _subtitle {
+    switch (_mode) {
+      case _AuthMode.register:
+        return 'Use your recovery email and site token to create your account';
+      case _AuthMode.verify:
+        return 'Enter the code that was sent to your recovery email';
+      case _AuthMode.signIn:
+        return 'Access your tracking dashboard';
+    }
+  }
+
+  String get _buttonLabel {
+    switch (_mode) {
+      case _AuthMode.register:
+        return 'CREATE ACCOUNT';
+      case _AuthMode.verify:
+        return 'VERIFY EMAIL';
+      case _AuthMode.signIn:
+        return 'SIGN IN';
+    }
+  }
+
+  IconData get _buttonIcon {
+    switch (_mode) {
+      case _AuthMode.register:
+        return Icons.person_add_rounded;
+      case _AuthMode.verify:
+        return Icons.verified_user_rounded;
+      case _AuthMode.signIn:
+        return Icons.arrow_forward_rounded;
+    }
+  }
+
+  List<Color> get _buttonGradient {
+    switch (_mode) {
+      case _AuthMode.register:
+        return const [Color(0xFF00E5FF), Color(0xFF7C4DFF)];
+      case _AuthMode.verify:
+        return const [Color(0xFF63E6BE), Color(0xFF00BFA5)];
+      case _AuthMode.signIn:
+        return const [Color(0xFFFFD95A), Color(0xFFFF8A00)];
     }
   }
 
@@ -138,62 +277,102 @@ class _LoginScreenState extends State<LoginScreen>
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Base gradient always visible
           Container(decoration: AppTheme.backgroundGradient),
-
-          // Animated mesh only in idle
-          if (_phase == _AuthPhase.idle)
-            const AnimatedMeshBackground(child: SizedBox.expand()),
-
-          // Form layout (fades out when loading starts)
-          if (_phase != _AuthPhase.success)
-            FadeTransition(
-              opacity: _phase == _AuthPhase.idle
-                  ? _enterFade
-                  : _formFade,
-              child: SafeArea(
-                child: Center(
-                  child: SingleChildScrollView(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 32),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const SizedBox(height: 40),
-                        _buildLogo(80),
-                        const SizedBox(height: 24),
-                        Text(
-                          'PRINCESS',
-                          style: AppTheme.displayFont(
-                              size: 28,
+          // Lightning background
+          AnimatedBuilder(
+            animation: _lightningCtrl,
+            builder: (_, __) => CustomPaint(
+              painter: _LoginLightningPainter(_lightningCtrl.value),
+              size: Size.infinite,
+            ),
+          ),
+          SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(height: 4),
+                    Hero(
+                      tag: _logoHeroTag,
+                      child: Container(
+                        width: 296,
+                        height: 296,
+                        alignment: Alignment.center,
+                        child: Image.asset(
+                          'assets/logo.png',
+                          width: 296,
+                          height: 296,
+                          fit: BoxFit.contain,
+                          filterQuality: FilterQuality.high,
+                        ),
+                      ),
+                    ),
+                    Transform.translate(
+                      offset: const Offset(0, -18),
+                      child: Column(
+                        children: [
+                          Text(
+                            'PRINCESS',
+                            style: AppTheme.displayFont(
+                              size: 40,
+                              weight: FontWeight.w900,
+                              color: C.text,
+                            ).copyWith(
+                              letterSpacing: 2.4,
+                              shadows: [
+                                Shadow(
+                                  color: C.cyan.withValues(alpha: 0.45),
+                                  blurRadius: 16,
+                                ),
+                                Shadow(
+                                  color: C.gold.withValues(alpha: 0.20),
+                                  blurRadius: 24,
+                                ),
+                              ],
+                            ),
+                          ),
+                          Text(
+                            'TRACKERS',
+                            style: AppTheme.displayFont(
+                              size: 20,
                               weight: FontWeight.w700,
-                              color: C.text),
-                        ),
-                        Text(
-                          'TRACKERS',
-                          style: AppTheme.displayFont(
-                              size: 14,
-                              weight: FontWeight.w400,
-                              color: C.cyan),
-                        ),
-                        const SizedBox(height: 48),
-                        GlassCard(
-                          padding: const EdgeInsets.all(28),
-                          child: Column(
-                            crossAxisAlignment:
-                                CrossAxisAlignment.start,
-                            children: [
-                              Text('Sign In',
-                                  style: AppTheme.font(
-                                      size: 20,
-                                      weight: FontWeight.w700)),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Access your tracking dashboard',
-                                style: AppTheme.font(
-                                    size: 13, color: C.textDim),
-                              ),
-                              const SizedBox(height: 28),
+                              color: C.cyan,
+                            ).copyWith(
+                              letterSpacing: 8,
+                              shadows: [
+                                Shadow(
+                                  color: C.cyan.withValues(alpha: 0.35),
+                                  blurRadius: 16,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    IgnorePointer(
+                      ignoring: _submitting,
+                      child: GlassCard(
+                        padding: const EdgeInsets.all(28),
+                        glowColor: C.cyan,
+                        glowBlur: 22,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _title,
+                              style: AppTheme.font(size: 20, weight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _subtitle,
+                              style: AppTheme.font(size: 13, color: C.textDim),
+                            ),
+                            const SizedBox(height: 28),
+                            if (_mode != _AuthMode.verify) ...[
                               GlowTextField(
                                 controller: _nameCtrl,
                                 label: 'Name',
@@ -208,615 +387,353 @@ class _LoginScreenState extends State<LoginScreen>
                                 obscure: true,
                                 keyboardType: TextInputType.number,
                                 maxLength: 4,
-                                onSubmitted: (_) => _login(),
+                                textInputAction: _mode == _AuthMode.signIn
+                                    ? TextInputAction.done
+                                    : TextInputAction.next,
+                                onSubmitted: _mode == _AuthMode.signIn ? (_) => _submit() : null,
                               ),
-                              if (_error != null) ...[
-                                const SizedBox(height: 12),
-                                Container(
-                                  padding:
-                                      const EdgeInsets.symmetric(
-                                          horizontal: 12,
-                                          vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: C.pink
-                                        .withValues(alpha: 0.1),
-                                    borderRadius:
-                                        BorderRadius.circular(10),
-                                    border: Border.all(
-                                        color: C.pink
-                                            .withValues(alpha: 0.3)),
+                              const SizedBox(height: 16),
+                            ],
+                            if (_mode == _AuthMode.register) ...[
+                              GlowTextField(
+                                controller: _emailCtrl,
+                                label: 'Recovery Email',
+                                icon: Icons.alternate_email_rounded,
+                                keyboardType: TextInputType.emailAddress,
+                                textInputAction: TextInputAction.next,
+                              ),
+                              const SizedBox(height: 16),
+                              GlowTextField(
+                                controller: _jobTokenCtrl,
+                                label: 'Site Token',
+                                icon: Icons.key_rounded,
+                                keyboardType: TextInputType.number,
+                                textInputAction: TextInputAction.done,
+                                onSubmitted: (_) => _submit(),
+                              ),
+                              const SizedBox(height: 14),
+                            ],
+                            if (_mode == _AuthMode.verify) ...[
+                              GlowTextField(
+                                controller: _emailCtrl,
+                                label: 'Recovery Email',
+                                icon: Icons.alternate_email_rounded,
+                                keyboardType: TextInputType.emailAddress,
+                                textInputAction: TextInputAction.next,
+                              ),
+                              const SizedBox(height: 16),
+                              GlowTextField(
+                                controller: _verificationCodeCtrl,
+                                label: 'Verification Code',
+                                icon: Icons.mark_email_read_rounded,
+                                keyboardType: TextInputType.number,
+                                maxLength: 6,
+                                textInputAction: TextInputAction.done,
+                                onSubmitted: (_) => _submit(),
+                              ),
+                              const SizedBox(height: 10),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton(
+                                  onPressed: _submitting ? null : _resendVerification,
+                                  child: Text(
+                                    'Resend code',
+                                    style: AppTheme.font(size: 13, color: C.cyan, weight: FontWeight.w700),
                                   ),
-                                  child: Row(children: [
-                                    const Icon(Icons.error_outline,
-                                        color: C.pink, size: 16),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(_error!,
-                                          style: AppTheme.font(
-                                              size: 13,
-                                              color: C.pink)),
-                                    ),
-                                  ]),
                                 ),
-                              ],
-                              const SizedBox(height: 24),
-                              NeonButton(
-                                label: 'SIGN IN',
-                                icon: Icons.arrow_forward_rounded,
-                                loading:
-                                    _phase == _AuthPhase.loading,
-                                onPressed: _login,
                               ),
                             ],
-                          ),
+                            if (_mode != _AuthMode.verify) _buildRememberLogin(),
+                            if (_info != null) ...[
+                              const SizedBox(height: 12),
+                              _buildInfoBanner(),
+                            ],
+                            if (_error != null) ...[
+                              const SizedBox(height: 12),
+                              _buildErrorBanner(),
+                            ],
+                            const SizedBox(height: 24),
+                            NeonButton(
+                              label: _buttonLabel,
+                              icon: _buttonIcon,
+                              gradientColors: _buttonGradient,
+                              foregroundColor: C.bg,
+                              loading: _submitting,
+                              onPressed: _submit,
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 32),
-                        Text('v1.0.0',
-                            style: AppTheme.font(
-                                size: 11, color: C.textDim)),
-                        const SizedBox(height: 20),
-                      ],
+                      ),
                     ),
-                  ),
+                    IgnorePointer(
+                      ignoring: _submitting,
+                      child: Column(
+                        children: [
+                          const SizedBox(height: 6),
+                          GestureDetector(
+                            onTap: () {
+                              if (_mode == _AuthMode.signIn) {
+                                _switchMode(_AuthMode.register);
+                              } else {
+                                _switchMode(_AuthMode.signIn);
+                              }
+                            },
+                            child: Text.rich(
+                              TextSpan(
+                                text: _mode == _AuthMode.signIn
+                                    ? "Don't have an account? "
+                                    : 'Already have an account? ',
+                                style: AppTheme.font(size: 13, color: C.textDim),
+                                children: [
+                                  TextSpan(
+                                    text: _mode == _AuthMode.signIn ? 'Create one' : 'Sign In',
+                                    style: AppTheme.font(
+                                      size: 13,
+                                      color: C.cyan,
+                                      weight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text('v1.0.0',
+                              style: AppTheme.font(size: 11, color: C.textDim)),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
                 ),
               ),
             ),
-
-          // Loading / success overlay: zooming logo + sparks/explosion
-          if (_phase != _AuthPhase.idle)
-            AnimatedBuilder(
-              animation: Listenable.merge(
-                  [_transCtrl, _sparkCtrl, _chargeCtrl, _explodeCtrl]),
-              builder: (_, __) {
-                // Screen shake during explosion
-                double shakeX = 0, shakeY = 0;
-                if (_explodeCtrl.value > 0 && _explodeCtrl.value < 0.6) {
-                  final intensity = 12.0 * (1 - _explodeCtrl.value / 0.6);
-                  shakeX = math.sin(_explodeCtrl.value * 47) * intensity;
-                  shakeY = math.cos(_explodeCtrl.value * 53) * intensity;
-                }
-                return Transform.translate(
-                  offset: Offset(shakeX, shakeY),
-                  child: Opacity(
-                    opacity: _overlayFade.value.clamp(0.0, 1.0),
-                    child: Center(child: _buildAnimatingLogo()),
-                  ),
-                );
-              },
-            ),
-
-          // Overload flash â€” multi-stage: cyan flash â†’ white burn â†’ fade
-          if (_phase == _AuthPhase.success)
-            AnimatedBuilder(
-              animation: Listenable.merge([_chargeCtrl, _explodeCtrl]),
-              builder: (_, __) {
-                // During charge: pulsing cyan overlay
-                double chargeGlow = 0;
-                if (_chargeCtrl.value > 0.5) {
-                  final p = (_chargeCtrl.value - 0.5) * 2; // 0â†’1
-                  chargeGlow = math.sin(p * math.pi * 4) * 0.15 * p;
-                }
-                // During explosion: intense white burn
-                double explodeFlash = 0;
-                if (_explodeCtrl.value > 0) {
-                  final t = _explodeCtrl.value;
-                  if (t < 0.3) {
-                    explodeFlash = (t / 0.3); // ramp up
-                  } else if (t < 0.5) {
-                    explodeFlash = 1.0; // hold white
-                  } else {
-                    explodeFlash = (1.0 - (t - 0.5) / 0.5); // fade out
-                  }
-                }
-                final totalAlpha = (chargeGlow + explodeFlash * 0.95).clamp(0.0, 1.0);
-                if (totalAlpha <= 0) return const SizedBox.shrink();
-                return Container(
-                  color: Color.lerp(
-                    C.cyan.withValues(alpha: totalAlpha * 0.6),
-                    Colors.white.withValues(alpha: totalAlpha),
-                    _explodeCtrl.value.clamp(0.0, 1.0),
-                  ),
-                );
-              },
-            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildAnimatingLogo() {
-    final logoSize = 80.0 + 180.0 * _logoScale.value;
-    final canvasSize = logoSize + 220.0; // bigger canvas for bigger effects
-    final showSparks = _phase == _AuthPhase.loading ||
-        (_phase == _AuthPhase.success && _explodeCtrl.value == 0.0);
-    final chargeT = _chargeCtrl.value;
-
-    return SizedBox(
-      width: canvasSize,
-      height: canvasSize,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          // Charge-up energy rings
-          if (chargeT > 0 && _explodeCtrl.value == 0)
-            Positioned.fill(
-              child: CustomPaint(
-                painter: _ChargeRingPainter(chargeT, logoSize / 2),
-              ),
-            ),
-          // Floating sparks while loading
-          if (showSparks)
-            Positioned.fill(
-              child: CustomPaint(
-                painter: _SparkPainter(
-                    _sparkCtrl.value, logoSize / 2, chargeT),
-              ),
-            ),
-          // Overload explosion
-          if (_explodeCtrl.value > 0)
-            Positioned.fill(
-              child: CustomPaint(
-                painter: _OverloadExplosionPainter(
-                    _explodeCtrl.value, logoSize / 2),
-              ),
-            ),
-          // Logo â€” scales up then shatters away during explosion
-          if (_explodeCtrl.value < 0.35)
-            Transform.scale(
-              scale: _explodeCtrl.value > 0
-                  ? 1.0 + _explodeCtrl.value * 3.0 // swell up before shattering
-                  : 1.0,
-              child: Opacity(
-                opacity: _explodeCtrl.value > 0.15
-                    ? (1.0 - ((_explodeCtrl.value - 0.15) / 0.2)).clamp(0.0, 1.0)
-                    : 1.0,
-                child: _buildLogo(logoSize, chargeT),
-              ),
-            )
-          else if (_explodeCtrl.value == 0)
-            _buildLogo(logoSize, chargeT),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLogo(double size, [double chargeT = 0]) {
-    // Intensifying glow during charge-up
-    final glowColor = Color.lerp(C.cyan, Colors.white, chargeT * 0.5)!;
-    final glowBlur = 30.0 + chargeT * 40;
-    final pulseScale = 1.0 + math.sin(chargeT * math.pi * 6) * 0.03 * chargeT;
-
-    return Transform.scale(
-      scale: pulseScale,
+  Widget _buildRememberLogin() {
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => setState(() => _rememberLogin = !_rememberLogin),
       child: Container(
-        width: size,
-        height: size,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: glowColor.withValues(alpha: 0.4 + chargeT * 0.4),
-              blurRadius: glowBlur,
-              spreadRadius: -2 + chargeT * 8,
+          color: const Color(0x0AFFFFFF),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: _rememberLogin
+                ? C.cyan.withValues(alpha: 0.4)
+                : const Color(0x14FFFFFF),
+          ),
+        ),
+        child: Row(
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              width: 22,
+              height: 22,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(7),
+                color: _rememberLogin
+                    ? C.cyan.withValues(alpha: 0.18)
+                    : Colors.transparent,
+                border: Border.all(
+                  color: _rememberLogin ? C.cyan : const Color(0x30FFFFFF),
+                  width: 1.4,
+                ),
+              ),
+              child: _rememberLogin
+                  ? const Icon(Icons.check_rounded, size: 15, color: C.cyan)
+                  : null,
             ),
-            BoxShadow(
-              color: C.purple.withValues(alpha: 0.15 + chargeT * 0.2),
-              blurRadius: glowBlur * 1.5,
-              spreadRadius: -5 + chargeT * 4,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Save login',
+                      style: AppTheme.font(size: 13, weight: FontWeight.w700)),
+                  const SizedBox(height: 2),
+                  Text('Keep this name and PIN filled in next time.',
+                      style: AppTheme.font(size: 11, color: C.textDim)),
+                ],
+              ),
             ),
           ],
         ),
-        child: ClipOval(
-          child: Image.asset(
-            'assets/logo.png',
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [C.cyan, C.purple],
-                ),
-              ),
-              child: Icon(Icons.track_changes_rounded,
-                  size: size * 0.5, color: Colors.white),
-            ),
-          ),
-        ),
       ),
+    );
+  }
+
+  Widget _buildInfoBanner() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: C.cyan.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: C.cyan.withValues(alpha: 0.3)),
+      ),
+      child: Row(children: [
+        const Icon(Icons.info_outline_rounded, color: C.cyan, size: 16),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(_info!, style: AppTheme.font(size: 13, color: C.text)),
+        ),
+      ]),
+    );
+  }
+
+  Widget _buildErrorBanner() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: C.pink.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: C.pink.withValues(alpha: 0.3)),
+      ),
+      child: Row(children: [
+        const Icon(Icons.error_outline, color: C.pink, size: 16),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(_error!, style: AppTheme.font(size: 13, color: C.pink)),
+        ),
+      ]),
     );
   }
 }
 
-
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// WIRE SPARK PAINTER â€” jagged electrical arcs + crackling discharge
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-class _SparkPainter extends CustomPainter {
+// ─── Lightning background for login page ───
+class _LoginLightningPainter extends CustomPainter {
   final double t;
-  final double logoRadius;
-  final double chargeT;
+  _LoginLightningPainter(this.t);
 
-  _SparkPainter(this.t, this.logoRadius, this.chargeT);
-
-  // Generate a jagged lightning path from start to end
-  Path _jaggedPath(Offset start, Offset end, int segments, double deviation, int seed) {
-    final path = Path();
-    path.moveTo(start.dx, start.dy);
-    final rng = math.Random(seed + (t * 60).toInt());
-    for (int i = 1; i < segments; i++) {
-      final lerp = i / segments;
-      final midX = start.dx + (end.dx - start.dx) * lerp;
-      final midY = start.dy + (end.dy - start.dy) * lerp;
-      final perpX = -(end.dy - start.dy) / (end - start).distance;
-      final perpY = (end.dx - start.dx) / (end - start).distance;
-      final jitter = (rng.nextDouble() - 0.5) * 2 * deviation;
-      path.lineTo(midX + perpX * jitter, midY + perpY * jitter);
+  Path _bolt(Offset a, Offset b, int segs, double dev, int seed) {
+    final p = Path()..moveTo(a.dx, a.dy);
+    final rng = math.Random(seed);
+    final dx = b.dx - a.dx, dy = b.dy - a.dy;
+    final len = math.sqrt(dx * dx + dy * dy);
+    if (len < 1) return p;
+    final nx = -dy / len, ny = dx / len;
+    for (int i = 1; i < segs; i++) {
+      final lp = i / segs;
+      final jitter = (rng.nextDouble() - 0.5) * 2 * dev;
+      p.lineTo(a.dx + dx * lp + nx * jitter, a.dy + dy * lp + ny * jitter);
     }
-    path.lineTo(end.dx, end.dy);
-    return path;
+    p.lineTo(b.dx, b.dy);
+    return p;
   }
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final intensity = 1.0 + chargeT * 2.0;
-    final arcCount = (6 * intensity).round().clamp(6, 16);
+    final w = size.width, h = size.height;
 
-    // â”€â”€ Jagged electric arcs radiating from crown edge â”€â”€
-    for (int i = 0; i < arcCount; i++) {
-      final seed = i * 137 + (t * 30).toInt();
-      final rng = math.Random(seed);
-      // Arc origin on the logo circle, randomised angle
-      final baseAngle = (i / arcCount) * 2 * math.pi + t * math.pi * 0.4;
-      final angleJitter = rng.nextDouble() * 0.5 - 0.25;
-      final angle = baseAngle + angleJitter;
+    // dense ambient lightning bolts
+    const bolts = [
+      (0.05, 0.08, 0.40, 0.50, 0),
+      (0.65, 0.04, 0.95, 0.38, 11),
+      (0.10, 0.70, 0.50, 0.95, 22),
+      (0.55, 0.60, 0.92, 0.88, 33),
+      (0.00, 0.18, 0.30, 0.26, 44),
+      (0.72, 0.18, 0.98, 0.22, 55),
+      (0.08, 0.44, 0.35, 0.58, 66),
+      (0.62, 0.46, 0.96, 0.68, 77),
+      (0.04, 0.90, 0.26, 0.78, 88),
+    ];
 
-      final startDist = logoRadius * 0.9;
-      final flickerLen = 20.0 + rng.nextDouble() * (30 + chargeT * 60);
-      final start = Offset(
-        center.dx + startDist * math.cos(angle),
-        center.dy + startDist * math.sin(angle),
-      );
-      final end = Offset(
-        center.dx + (startDist + flickerLen) * math.cos(angle),
-        center.dy + (startDist + flickerLen) * math.sin(angle),
-      );
+    for (int bi = 0; bi < bolts.length; bi++) {
+      final (ax, ay, bx, by, seed) = bolts[bi];
+      final phase = (t + bi * 0.25) % 1.0;
+        final flash =
+          phase < 0.12 ? math.sin(phase / 0.12 * math.pi) : 0.0;
+      if (flash <= 0.01) continue;
 
-      // Flicker: blink arcs in/out rapidly
-      final flicker = math.sin(t * math.pi * 18 + i * 2.3);
-      if (flicker < -0.1) continue;
-      final alpha = (flicker + 0.1).clamp(0.0, 1.0) * (0.6 + chargeT * 0.4);
+      final rolledSeed = seed + (t * 0.4 + bi).toInt() * 7;
+      final start = Offset(w * ax, h * ay);
+      final end = Offset(w * bx, h * by);
+      final boltPath = _bolt(start, end, 8, 18.0, rolledSeed);
 
-      // Branch colours â€” cyan/white core, purple glow
-      final isWhite = i % 3 == 0;
-      final arcColor = isWhite ? Colors.white : C.cyan;
-
-      // Outer glow stroke
-      final glowPaint = Paint()
-        ..color = C.cyan.withValues(alpha: alpha * 0.25)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 4.0 + chargeT * 3
-        ..strokeCap = StrokeCap.round
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
       canvas.drawPath(
-          _jaggedPath(start, end, 5 + i % 3, 8 + chargeT * 10, seed), glowPaint);
-
-      // Core bright stroke
-      final corePaint = Paint()
-        ..color = arcColor.withValues(alpha: alpha * 0.95)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.0 + (isWhite ? 0.5 : 0)
-        ..strokeCap = StrokeCap.round;
-      canvas.drawPath(
-          _jaggedPath(start, end, 5 + i % 3, 8 + chargeT * 10, seed), corePaint);
-
-      // Tiny spark dot at tip
-      final tip = end;
-      canvas.drawCircle(
-        tip,
-        1.5 + rng.nextDouble(),
+        boltPath,
         Paint()
-          ..color = Colors.white.withValues(alpha: alpha)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+            ..color = C.cyan.withValues(alpha: flash * 0.16)
+          ..style = PaintingStyle.stroke
+            ..strokeWidth = 10
+          ..strokeCap = StrokeCap.round
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16),
       );
+      canvas.drawPath(
+        boltPath,
+        Paint()
+            ..color = Colors.white.withValues(alpha: flash * 0.35)
+          ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.2
+          ..strokeCap = StrokeCap.round,
+      );
+
+      // Branch bolts
+      final rng = math.Random(rolledSeed + 1);
+      for (int br = 0; br < 3; br++) {
+        final branchT = 0.3 + rng.nextDouble() * 0.4;
+        final bstart = Offset(
+          start.dx + (end.dx - start.dx) * branchT,
+          start.dy + (end.dy - start.dy) * branchT,
+        );
+        final bAngle = math.atan2(end.dy - start.dy, end.dx - start.dx) +
+            (rng.nextDouble() - 0.5) * 1.0;
+        final bLen = 30.0 + rng.nextDouble() * 60;
+        final bend = Offset(
+          bstart.dx + math.cos(bAngle) * bLen,
+          bstart.dy + math.sin(bAngle) * bLen,
+        );
+        canvas.drawPath(
+          _bolt(bstart, bend, 5, 10, rolledSeed + br + 50),
+          Paint()
+            ..color = C.purple.withValues(alpha: flash * 0.14)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 0.5
+            ..strokeCap = StrokeCap.round
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+        );
+      }
     }
 
-    // â”€â”€ Crackling small secondary sparks around logo edge â”€â”€
-    final crackleCount = (12 + chargeT * 20).round();
-    for (int i = 0; i < crackleCount; i++) {
-      final seed2 = i * 53 + (t * 45).toInt();
-      final rng2 = math.Random(seed2);
-      final angle = rng2.nextDouble() * 2 * math.pi;
-      final r = logoRadius + rng2.nextDouble() * (8 + chargeT * 15);
-      final x = center.dx + r * math.cos(angle);
-      final y = center.dy + r * math.sin(angle);
+    // Drifting spark particles
+    const particleCount = 34;
+    for (int i = 0; i < particleCount; i++) {
+      final rng = math.Random(i * 137 + 5);
+      final phase =
+          (t * (0.25 + rng.nextDouble() * 0.15) + rng.nextDouble()) % 1.0;
+      final baseX = rng.nextDouble() * w;
+      final x = baseX + math.sin(phase * math.pi * 3 + i) * 15;
+      final y = h - phase * h * 1.2;
+      if (y < -20 || y > h + 20) continue;
 
-      final flicker2 = math.sin(t * math.pi * 25 + i * 4.7);
-      if (flicker2 < 0) continue;
-      final sz = 0.8 + rng2.nextDouble() * 1.5;
-      final sparkColors = [C.cyan, Colors.white, C.gold, C.purple];
-      final sc = sparkColors[i % sparkColors.length];
+      final twinkle = math.sin(t * math.pi * 12 + i * 2.9);
+      final alpha = ((twinkle + 1) / 2) * 0.12;
+      if (alpha < 0.01) continue;
+
+      final sz = 0.6 + rng.nextDouble() * 1.2;
+      final colors = [C.cyan, C.purple, C.gold, Colors.white];
+      final sc = colors[i % colors.length];
+
       canvas.drawCircle(
         Offset(x, y),
-        sz * 1.8,
+        sz * 2.5,
         Paint()
-          ..color = sc.withValues(alpha: flicker2 * 0.3)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, sz * 2),
+          ..color = sc.withValues(alpha: alpha * 0.4)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, sz * 3),
       );
       canvas.drawCircle(
         Offset(x, y),
         sz,
-        Paint()..color = Colors.white.withValues(alpha: flicker2 * 0.85),
-      );
-    }
-
-    // â”€â”€ During heavy charge: forking bolts (crown shorting out) â”€â”€
-    if (chargeT > 0.3) {
-      final forkAlpha = ((chargeT - 0.3) / 0.7).clamp(0.0, 1.0);
-      final forkCount = (forkAlpha * 4).round().clamp(1, 4);
-      for (int fi = 0; fi < forkCount; fi++) {
-        final fa = fi * (math.pi / 2) + t * math.pi;
-        final fseed = fi * 91 + (t * 20).toInt();
-        final fstart = Offset(
-          center.dx + logoRadius * 0.8 * math.cos(fa),
-          center.dy + logoRadius * 0.8 * math.sin(fa),
-        );
-        final fend = Offset(
-          center.dx + (logoRadius + 50 + chargeT * 40) * math.cos(fa + 0.1),
-          center.dy + (logoRadius + 50 + chargeT * 40) * math.sin(fa + 0.1),
-        );
-        final fFlicker = (math.sin(t * math.pi * 22 + fi * 5) + 1) / 2;
-        if (fFlicker < 0.2) continue;
-
-        // Forking branch
-        final fmidAngle = fa + (math.Random(fseed).nextDouble() - 0.5) * 0.6;
-        final fmid = Offset(
-          center.dx + (logoRadius + 25) * math.cos(fmidAngle),
-          center.dy + (logoRadius + 25) * math.sin(fmidAngle),
-        );
-        final fEnd2 = Offset(
-          center.dx + (logoRadius + 40 + chargeT * 30) * math.cos(fmidAngle + 0.3),
-          center.dy + (logoRadius + 40 + chargeT * 30) * math.sin(fmidAngle + 0.3),
-        );
-
-        for (final pts in [
-          [fstart, fend],
-          [fmid, fEnd2]
-        ]) {
-          canvas.drawPath(
-            _jaggedPath(pts[0], pts[1], 6, 12 + chargeT * 8, fseed),
-            Paint()
-              ..color = Colors.white.withValues(alpha: fFlicker * forkAlpha * 0.9)
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = 1.2
-              ..strokeCap = StrokeCap.round
-              ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
-          );
-        }
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(_SparkPainter old) =>
-      old.t != t || old.chargeT != chargeT;
-}
-
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// CHARGE RING PAINTER â€” electric overload buildup rings
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-class _ChargeRingPainter extends CustomPainter {
-  final double t; // 0â†’1 charge progress
-  final double logoRadius;
-
-  _ChargeRingPainter(this.t, this.logoRadius);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-
-    // Expanding electromagnetic rings that pulse outward
-    final ringCount = (2 + t * 3).round();
-    for (int i = 0; i < ringCount; i++) {
-      final phase = (t * 2 + i * 0.5) % 1.0;
-      final radius = logoRadius * (1.05 + phase * 1.2);
-      final flickerAlpha = math.sin(t * math.pi * 16 + i) * 0.5 + 0.5;
-      final opacity = (math.sin(phase * math.pi) * (0.12 + t * 0.35) * flickerAlpha).clamp(0.0, 1.0);
-      final strokeW = 1.2 + (1 - phase) * 1.8;
-      final color = i.isEven ? C.cyan : C.purple;
-      canvas.drawCircle(
-        center,
-        radius,
-        Paint()
-          ..color = color.withValues(alpha: opacity)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = strokeW
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, strokeW * 3),
-      );
-    }
-
-    // Core electromagnetic glow that brightens on overload
-    if (t > 0.3) {
-      final coreI = ((t - 0.3) / 0.7).clamp(0.0, 1.0);
-      final flicker = (math.sin(t * math.pi * 30) + 1) / 2;
-      canvas.drawCircle(
-        center,
-        logoRadius * 0.9,
-        Paint()
-          ..color = C.cyan.withValues(alpha: coreI * flicker * 0.22)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, logoRadius * 0.5),
-      );
-    }
-
-    // Pre-overload warning: rapid white flicker at high charge
-    if (t > 0.75) {
-      final warn = ((t - 0.75) / 0.25).clamp(0.0, 1.0);
-      final warnFlicker = (math.sin(t * math.pi * 50) + 1) / 2;
-      canvas.drawCircle(
-        center,
-        logoRadius * 1.02,
-        Paint()
-          ..color = Colors.white.withValues(alpha: warn * warnFlicker * 0.35)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, logoRadius * 0.25),
+        Paint()..color = sc.withValues(alpha: alpha),
       );
     }
   }
 
   @override
-  bool shouldRepaint(_ChargeRingPainter old) => old.t != t;
-}
-
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// SHATTER EXPLOSION PAINTER â€” crown fragments fly outward
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-class _OverloadExplosionPainter extends CustomPainter {
-  final double t; // 0â†’1
-  final double logoRadius;
-
-  _OverloadExplosionPainter(this.t, this.logoRadius);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final scale = logoRadius / 65;
-
-    // â”€â”€ Shockwave shatter rings â”€â”€
-    for (int r = 0; r < 4; r++) {
-      final delay = r * 0.06;
-      final rt = (t - delay).clamp(0.0, 1.0);
-      if (rt <= 0) continue;
-      final ringR = logoRadius * (0.4 + rt * 3.5);
-      final ringAlpha = math.pow(1 - rt, 1.8).toDouble().clamp(0.0, 1.0);
-      final sw = (3.5 - r * 0.5) * (1 - rt * 0.8);
-      if (ringAlpha > 0 && sw > 0.1) {
-        final rc = r == 0 ? Colors.white : (r == 1 ? C.cyan : (r == 2 ? C.purple : C.gold));
-        canvas.drawCircle(
-          center,
-          ringR,
-          Paint()
-            ..color = rc.withValues(alpha: ringAlpha * 0.7)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = sw
-            ..maskFilter = MaskFilter.blur(BlurStyle.normal, 5 + rt * 5),
-        );
-      }
-    }
-
-    // â”€â”€ Crown shard fragments flying outward â”€â”€
-    // Each shard is a small irregular polygon
-    const shardCount = 24;
-    for (int i = 0; i < shardCount; i++) {
-      final rng = math.Random(i * 137);
-      final angle = (i / shardCount) * 2 * math.pi + rng.nextDouble() * 0.4;
-      final speed = (80.0 + rng.nextDouble() * 60) * scale;
-      final spinSpeed = (rng.nextDouble() - 0.5) * 8;
-
-      // Fragments accelerate outward then slow
-      final dist = speed * t * (2 - t); // ease out
-      final shardX = center.dx + dist * math.cos(angle);
-      final shardY = center.dy + dist * math.sin(angle);
-
-      // Fade out
-      final fadeStart = 0.25 + rng.nextDouble() * 0.3;
-      final opacity = t < fadeStart
-          ? 1.0
-          : math.pow(1 - ((t - fadeStart) / (1 - fadeStart)), 1.5)
-              .toDouble()
-              .clamp(0.0, 1.0);
-      if (opacity <= 0) continue;
-
-      // Shard shape â€” small irregular triangle/quad
-      final shardSize = (3.0 + rng.nextDouble() * 4.0) * (1 - t * 0.4);
-      final rotation = t * spinSpeed * math.pi;
-
-      canvas.save();
-      canvas.translate(shardX, shardY);
-      canvas.rotate(rotation);
-
-      // Draw a triangular shard
-      final path = Path();
-      final pts = 3 + (i % 2); // 3 or 4 points
-      for (int p = 0; p < pts; p++) {
-        final a = (p / pts) * 2 * math.pi + rng.nextDouble() * 0.6;
-        final r2 = shardSize * (0.5 + rng.nextDouble() * 0.5);
-        if (p == 0) {
-          path.moveTo(r2 * math.cos(a), r2 * math.sin(a));
-        } else {
-          path.lineTo(r2 * math.cos(a), r2 * math.sin(a));
-        }
-      }
-      path.close();
-
-      // Shard fill â€” glowing fragment material
-      final shardColors = [C.cyan, C.purple, C.gold, Colors.white];
-      final sc = shardColors[i % shardColors.length];
-
-      canvas.drawPath(
-        path,
-        Paint()
-          ..color = sc.withValues(alpha: opacity * 0.9)
-          ..style = PaintingStyle.fill
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, shardSize * 0.4),
-      );
-      // Bright edge highlight
-      canvas.drawPath(
-        path,
-        Paint()
-          ..color = Colors.white.withValues(alpha: opacity * 0.5)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 0.5,
-      );
-
-      canvas.restore();
-    }
-
-    // â”€â”€ High-energy bolt spray at explosion origin (early phase) â”€â”€
-    if (t < 0.45) {
-      final boltAlpha = (1 - t / 0.45).clamp(0.0, 1.0);
-      const boltCount = 16;
-      final rngB = math.Random((t * 60).toInt());
-      for (int b = 0; b < boltCount; b++) {
-        final bAngle = (b / boltCount) * 2 * math.pi;
-        final bLen = (20 + rngB.nextDouble() * 40) * scale * (1 + t);
-        final bEnd = Offset(
-          center.dx + bLen * math.cos(bAngle),
-          center.dy + bLen * math.sin(bAngle),
-        );
-        // Jagged bolt from center
-        final bPath = Path();
-        bPath.moveTo(center.dx, center.dy);
-        final segments = 4;
-        for (int s = 1; s < segments; s++) {
-          final lerp = s / segments;
-          final mx = center.dx + (bEnd.dx - center.dx) * lerp;
-          final my = center.dy + (bEnd.dy - center.dy) * lerp;
-          final jitter = (rngB.nextDouble() - 0.5) * 12;
-          bPath.lineTo(mx + jitter, my + jitter);
-        }
-        bPath.lineTo(bEnd.dx, bEnd.dy);
-
-        canvas.drawPath(
-          bPath,
-          Paint()
-            ..color = C.cyan.withValues(alpha: boltAlpha * 0.4)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 2.5
-            ..strokeCap = StrokeCap.round
-            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
-        );
-        canvas.drawPath(
-          bPath,
-          Paint()
-            ..color = Colors.white.withValues(alpha: boltAlpha * 0.8)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 0.8
-            ..strokeCap = StrokeCap.round,
-        );
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(_OverloadExplosionPainter old) => old.t != t;
+  bool shouldRepaint(_LoginLightningPainter old) => true;
 }

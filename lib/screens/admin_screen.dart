@@ -186,6 +186,8 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
   void _showCreateUserDialog() {
     final nameCtrl = TextEditingController();
     final pinCtrl = TextEditingController();
+    final emailCtrl = TextEditingController();
+    final jobTokenCtrl = TextEditingController();
     String? errorText;
 
     showDialog<void>(
@@ -251,6 +253,54 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
                   ),
                 ),
               ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: emailCtrl,
+                style: AppTheme.font(size: 14),
+                keyboardType: TextInputType.emailAddress,
+                decoration: InputDecoration(
+                  labelText: 'Recovery Email',
+                  labelStyle: AppTheme.font(size: 13, color: C.textDim),
+                  filled: true,
+                  fillColor: const Color(0x10FFFFFF),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Color(0x18FFFFFF)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Color(0x18FFFFFF)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: C.cyan.withValues(alpha: 0.5)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: jobTokenCtrl,
+                style: AppTheme.font(size: 14),
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: 'Job Site Token',
+                  labelStyle: AppTheme.font(size: 13, color: C.textDim),
+                  filled: true,
+                  fillColor: const Color(0x10FFFFFF),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Color(0x18FFFFFF)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Color(0x18FFFFFF)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: C.cyan.withValues(alpha: 0.5)),
+                  ),
+                ),
+              ),
               if (errorText != null) ...[
                 const SizedBox(height: 8),
                 Text(errorText!, style: AppTheme.font(size: 12, color: C.pink)),
@@ -266,6 +316,8 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
               onPressed: () async {
                 final name = nameCtrl.text.trim();
                 final pin = pinCtrl.text.trim();
+                final email = emailCtrl.text.trim();
+                final jobToken = jobTokenCtrl.text.trim();
                 if (name.isEmpty) {
                   setDialogState(() => errorText = 'Name is required');
                   return;
@@ -274,10 +326,30 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
                   setDialogState(() => errorText = 'PIN must be 4 digits');
                   return;
                 }
+                if (email.isEmpty || !email.contains('@')) {
+                  setDialogState(() => errorText = 'A valid recovery email is required');
+                  return;
+                }
+                if (jobToken.isEmpty) {
+                  setDialogState(() => errorText = 'Job site token is required');
+                  return;
+                }
                 try {
-                  await context.read<AppState>().api.createUser(name, pin);
+                  final result = await context.read<AppState>().api.adminCreateUser(
+                    name,
+                    pin,
+                    email: email,
+                    jobToken: jobToken,
+                  );
+                  if (!result.verificationRequired) {
+                    setDialogState(() => errorText = result.error ?? 'Could not create user');
+                    return;
+                  }
                   if (ctx.mounted) Navigator.pop(ctx);
-                  _showSnack('User "$name" created!');
+                  final previewCode = result.previewCode == null || result.previewCode!.isEmpty
+                      ? ''
+                      : ' Preview code: ${result.previewCode!}';
+                  _showSnack('User "$name" created. They must verify their email before signing in.$previewCode');
                   await _loadUsers();
                 } on Exception catch (e) {
                   setDialogState(() => errorText = e.toString().replaceFirst('Exception: ', ''));

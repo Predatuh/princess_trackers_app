@@ -40,20 +40,84 @@ class ApiService {
     return decoded;
   }
 
+  Map<String, dynamic> _tryDecodeBody(http.Response res) {
+    if (res.body.isEmpty) {
+      return const <String, dynamic>{};
+    }
+    final decoded = jsonDecode(res.body);
+    if (decoded is Map<String, dynamic>) {
+      return decoded;
+    }
+    return const <String, dynamic>{};
+  }
+
+  AuthFlowResult _parseAuthResult(http.Response res, String fallbackError) {
+    final body = _tryDecodeBody(res);
+    if (res.statusCode >= 200 && res.statusCode < 300 && body['user'] != null) {
+      currentUser = User.fromJson(body['user']);
+      return AuthFlowResult(user: currentUser, message: body['message']?.toString());
+    }
+    if (body['verification_required'] == true) {
+      return AuthFlowResult(
+        verificationRequired: true,
+        email: body['email']?.toString(),
+        jobSiteName: body['job_site_name']?.toString(),
+        message: body['message']?.toString(),
+        previewCode: body['preview_code']?.toString(),
+      );
+    }
+    return AuthFlowResult(
+      error: body['error']?.toString() ?? fallbackError,
+      message: body['message']?.toString(),
+    );
+  }
+
   // ── Auth ──────────────────────────────────────────────
 
-  Future<User?> login(String name, String pin) async {
+  Future<AuthFlowResult> login(String name, String pin) async {
     final res = await _client.post(
       Uri.parse('$_rootUrl/api/auth/login'),
       headers: _headers,
       body: jsonEncode({'name': name, 'pin': pin}),
     );
-    if (res.statusCode == 200) {
-      final j = jsonDecode(res.body);
-      currentUser = User.fromJson(j['user']);
-      return currentUser;
-    }
-    return null;
+    return _parseAuthResult(res, 'Invalid name or PIN');
+  }
+
+  Future<AuthFlowResult> register(
+    String name,
+    String pin, {
+    required String email,
+    required String jobToken,
+  }) async {
+    final res = await _client.post(
+      Uri.parse('$_rootUrl/api/auth/register'),
+      headers: _headers,
+      body: jsonEncode({
+        'name': name,
+        'pin': pin,
+        'email': email,
+        'job_token': jobToken,
+      }),
+    );
+    return _parseAuthResult(res, 'Failed to create account');
+  }
+
+  Future<AuthFlowResult> verifyEmail(String email, String code) async {
+    final res = await _client.post(
+      Uri.parse('$_rootUrl/api/auth/verify-email'),
+      headers: _headers,
+      body: jsonEncode({'email': email, 'code': code}),
+    );
+    return _parseAuthResult(res, 'Verification failed');
+  }
+
+  Future<AuthFlowResult> resendVerification(String email) async {
+    final res = await _client.post(
+      Uri.parse('$_rootUrl/api/auth/resend-verification'),
+      headers: _headers,
+      body: jsonEncode({'email': email}),
+    );
+    return _parseAuthResult(res, 'Could not resend verification code');
   }
 
   Future<User?> checkSession() async {
@@ -141,21 +205,88 @@ class ApiService {
       Uri.parse('$_rootUrl/api/tracker/claim-people'),
       headers: _headers,
     );
+    if (res.statusCode == 404) {
+      final fallback = <String>[];
+      final name = currentUser?.name.trim();
+      if (name != null && name.isNotEmpty) {
+        fallback.add(name);
+      }
+      return fallback;
+    }
     final j = _decodeJsonResponse(res, 'Load claim people');
     return List<String>.from(j['data'] ?? const []);
   }
 
   Future<bool> claimBlock(int blockId,
-      {bool claim = true, List<String> people = const []}) async {
+      {bool claim = true,
+      List<String> people = const [],
+      Map<String, List<int>> assignments = const {}}) async {
     final res = await _client.post(
       Uri.parse('$_rootUrl/api/tracker/power-blocks/$blockId/claim'),
       headers: _headers,
       body: jsonEncode({
         'action': claim ? 'claim' : 'unclaim',
+        'actor_name': currentUser?.name,
         'people': people,
+        'assignments': assignments,
       }),
     );
     return res.statusCode == 200;
+  }
+
+  Future<Map<String, dynamic>> scanClaimSheetDraft({
+    required int blockId,
+    required String fileName,
+    required Uint8List fileBytes,
+    int? trackerId,
+  }) async {
+    final res = await _client.post(
+      Uri.parse('$_rootUrl/api/reports/claim-scan/draft'),
+      headers: _headers,
+      body: jsonEncode({
+        'power_block_id': blockId,
+        'tracker_id': trackerId,
+        'file_name': fileName,
+        'image_base64': base64Encode(fileBytes),
+      }),
+    );
+    if (res.statusCode == 404) {
+      throw Exception('Claim sheet upload is not available on this server yet.');
+    }
+    return _decodeJsonResponse(res, 'Scan claim sheet')['data'];
+  }
+
+  Future<Map<String, dynamic>> submitClaimScan({
+    required int blockId,
+    required List<String> people,
+    required Map<String, List<int>> assignments,
+    required Map<String, dynamic> draft,
+    int? trackerId,
+  }) async {
+    final res = await _client.post(
+      Uri.parse('$_rootUrl/api/reports/claim-scan/submit'),
+      headers: _headers,
+      body: jsonEncode({
+        'power_block_id': blockId,
+        'tracker_id': trackerId,
+        'actor_name': currentUser?.name,
+        'people': people,
+        'assignments': assignments,
+        'draft': draft,
+      }),
+    );
+    if (res.statusCode == 404) {
+      throw Exception('Claim sheet upload is not available on this server yet.');
+    }
+    return _decodeJsonResponse(res, 'Submit claim scan')['data'];
+  }
+
+  String? resolveMediaUrl(String? path) {
+    if (path == null || path.isEmpty) return null;
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      return path;
+    }
+    return '$_rootUrl$path';
   }
 
   // ── Bulk Complete ─────────────────────────────────────
@@ -388,20 +519,31 @@ class ApiService {
     return res.statusCode == 200;
   }
 
-  Future<Map<String, dynamic>?> createUser(String name, String pin) async {
+  Future<AuthFlowResult> createUser(
+    String name,
+    String pin, {
+    required String email,
+    required String jobToken,
+  }) async {
+    return register(name, pin, email: email, jobToken: jobToken);
+  }
+
+  Future<AuthFlowResult> adminCreateUser(
+    String name,
+    String pin, {
+    required String email,
+    required String jobToken,
+  }) async {
     final res = await _client.post(
-      Uri.parse('$_rootUrl/api/auth/register'),
+      Uri.parse('$_rootUrl/api/auth/users'),
       headers: _headers,
-      body: jsonEncode({'name': name, 'pin': pin}),
+      body: jsonEncode({
+        'name': name,
+        'pin': pin,
+        'email': email,
+        'job_token': jobToken,
+      }),
     );
-    if (res.statusCode == 201) {
-      final j = jsonDecode(res.body);
-      return j['user'] as Map<String, dynamic>?;
-    }
-    if (res.statusCode == 409 || res.statusCode == 400) {
-      final j = jsonDecode(res.body);
-      throw Exception(j['error'] ?? 'Failed to create user');
-    }
-    return null;
+    return _parseAuthResult(res, 'Failed to create user');
   }
 }
