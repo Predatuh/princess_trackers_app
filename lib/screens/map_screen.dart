@@ -20,7 +20,7 @@ class MapTab extends StatefulWidget {
 class _MapTabState extends State<MapTab> {
   bool _loading = true;
   bool _switchingTracker = false;
-  bool _showLabels = false;
+  bool _showLabels = true;
   String? _error;
   List<dynamic> _areas = [];
   List<dynamic> _statusData = [];
@@ -485,7 +485,7 @@ class _MapTabState extends State<MapTab> {
     final areaName = area['name']?.toString() ?? '';
     final markerWidth = mapW * bboxW / 100;
     final markerHeight = mapH * bboxH / 100;
-    final showLabel = _showLabels || _currentScale >= 2.1 || (markerWidth >= 42 && markerHeight >= 26);
+    final showLabel = _showLabels || _currentScale >= 1.2 || (markerWidth >= 18 && markerHeight >= 16);
 
     Color markerColor = Colors.grey;
     String blockName = areaName;
@@ -524,6 +524,16 @@ class _MapTabState extends State<MapTab> {
       }
     }
 
+    String markerLabel = areaName.trim();
+    if (status != null) {
+      final rawBlockName = status['block_name']?.toString() ?? blockName;
+      final numberMatch = RegExp(r'(\d+)').firstMatch(rawBlockName);
+      markerLabel = numberMatch?.group(1) ?? rawBlockName;
+    }
+    if (markerLabel.isEmpty) {
+      markerLabel = blockName;
+    }
+
     return Positioned(
       left: mapW * bboxX / 100,
       top: mapH * bboxY / 100,
@@ -557,10 +567,10 @@ class _MapTabState extends State<MapTab> {
                   child: Padding(
                     padding: const EdgeInsets.all(1),
                     child: Text(
-                      blockName,
+                      markerLabel,
                       style: TextStyle(
                         color: _hexToColor(area['label_color']) ?? Colors.white,
-                        fontSize: 10,
+                        fontSize: markerWidth < 24 ? 8 : 10,
                         fontWeight: FontWeight.w700,
                         shadows: const [
                           Shadow(color: Colors.black87, blurRadius: 3)
