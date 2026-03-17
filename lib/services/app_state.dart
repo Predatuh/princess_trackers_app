@@ -11,6 +11,9 @@ import '../services/realtime_sync_service.dart';
 
 class AppState extends ChangeNotifier {
   static const Set<String> _retiredStatusTypes = {'quality_check', 'quality_docs'};
+  static const String _offlineAuthKey = 'offline_auth';
+  static const String _cachedTrackersKey = 'cached_trackers';
+  static const String _cachedTrackerSettingsKey = 'cached_tracker_settings';
 
   final ApiService api = ApiService();
   late final RealtimeSyncService _realtime;
@@ -44,6 +47,8 @@ class AppState extends ChangeNotifier {
   bool isOffline = false;
   final List<Map<String, dynamic>> _pendingQueue = [];
   late final Stream<List<ConnectivityResult>> _connectivityStream;
+
+  int get pendingQueueCount => _pendingQueue.length;
 
   AppState() {
     _realtime = RealtimeSyncService(baseUrl: ApiService.baseUrl);
@@ -110,6 +115,21 @@ class AppState extends ChangeNotifier {
               ),
             ),
           );
+        } else if (type == 'claim_scan') {
+          await api.submitClaimScan(
+            blockId: item['blockId'] as int,
+            people: List<String>.from(item['people'] ?? const []),
+            assignments: Map<String, List<int>>.from(
+              (item['assignments'] as Map? ?? const {}).map(
+                (key, value) => MapEntry(
+                  key.toString(),
+                  List<int>.from(value as List? ?? const []),
+                ),
+              ),
+            ),
+            draft: Map<String, dynamic>.from(item['draft'] as Map? ?? const {}),
+            trackerId: item['trackerId'] as int?,
+          );
         } else {
           await api.updateLbdStatus(
             item['lbdId'] as int,
@@ -142,6 +162,116 @@ class AppState extends ChangeNotifier {
   }
 
   String _cacheKey(int trackerId) => 'blocks_cache_$trackerId';
+
+  Future<void> _persistOfflineAuth(String name, String pin) async {
+    if (user == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _offlineAuthKey,
+      jsonEncode({
+        'name': name,
+        'pin': pin,
+        'user': user!.toJson(),
+      }),
+    );
+  }
+
+  Future<User?> _loadOfflineUser(String name, String pin) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_offlineAuthKey);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      final cachedName = decoded['name']?.toString().trim().toLowerCase();
+      final cachedPin = decoded['pin']?.toString().trim();
+      if (cachedName != name.trim().toLowerCase() || cachedPin != pin.trim()) {
+        return null;
+      }
+      final userJson = decoded['user'];
+      if (userJson is! Map<String, dynamic>) return null;
+      return User.fromJson(userJson);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _clearOfflineAuth() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_offlineAuthKey);
+  }
+
+  Future<void> _cacheTrackers(List<Tracker> trackerList) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _cachedTrackersKey,
+      jsonEncode(trackerList.map((tracker) => tracker.toJson()).toList()),
+    );
+  }
+
+  Future<List<Tracker>> _loadCachedTrackers() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_cachedTrackersKey);
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      final decoded = jsonDecode(raw) as List;
+      return decoded
+          .map((entry) => Tracker.fromJson(Map<String, dynamic>.from(entry as Map)))
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> _cacheTrackerSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_cachedTrackerSettingsKey, jsonEncode(allTrackerSettings));
+  }
+
+  Future<void> _loadCachedTrackerSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_cachedTrackerSettingsKey);
+    if (raw == null || raw.isEmpty) return;
+    try {
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      allTrackerSettings = {
+        for (final entry in decoded.entries)
+          int.tryParse(entry.key) ?? 0: Map<String, dynamic>.from(entry.value as Map),
+      }..remove(0);
+    } catch (_) {}
+  }
+
+  Future<void> _restoreCachedWorkspace() async {
+    trackers = await _loadCachedTrackers();
+    await _loadCachedTrackerSettings();
+    if (trackers.isEmpty) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final savedTrackerId = prefs.getInt('currentTrackerId');
+    final initialTracker = savedTrackerId == null
+        ? trackers.first
+        : trackers.where((tracker) => tracker.id == savedTrackerId).firstOrNull ?? trackers.first;
+
+    for (final tracker in trackers) {
+      final cachedBlocks = await _loadCachedBlocks(tracker.id);
+      if (cachedBlocks.isNotEmpty) {
+        allTrackerBlocks[tracker.id] = cachedBlocks;
+      }
+    }
+
+    _applyTrackerContext(initialTracker, useHubCache: true);
+    statusColors = _filterStatusMap(
+      (allTrackerSettings[initialTracker.id] ?? const <String, dynamic>{})['colors']
+          ?? initialTracker.statusColors,
+    );
+    statusNames = _filterStatusMap(
+      (allTrackerSettings[initialTracker.id] ?? const <String, dynamic>{})['names']
+          ?? initialTracker.statusNames,
+    );
+    columnOrder = _filterStatusKeys(
+      (allTrackerSettings[initialTracker.id] ?? const <String, dynamic>{})['all_columns']
+          ?? initialTracker.statusTypes,
+    );
+  }
 
   Future<void> _persistSelectedTracker(int trackerId) async {
     final prefs = await SharedPreferences.getInstance();
@@ -328,6 +458,7 @@ class AppState extends ChangeNotifier {
       if (user != null) {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('lastUser', name);
+        await _persistOfflineAuth(name, pin);
         await _loadTrackers();
         _connectRealtimeIfReady();
       } else if (!result.verificationRequired) {
@@ -336,8 +467,20 @@ class AppState extends ChangeNotifier {
         error = null;
       }
     } catch (e) {
-      result = const AuthFlowResult(error: 'Connection error');
-      error = result.error;
+      final offlineUser = await _loadOfflineUser(name, pin);
+      if (offlineUser != null) {
+        user = offlineUser;
+        isOffline = true;
+        await _restoreCachedWorkspace();
+        result = AuthFlowResult(
+          user: offlineUser,
+          message: 'Offline mode restored from this device.',
+        );
+        error = null;
+      } else {
+        result = const AuthFlowResult(error: 'Connection error');
+        error = result.error;
+      }
     }
     isLoading = false;
     notifyListeners();
@@ -373,6 +516,7 @@ class AppState extends ChangeNotifier {
   Future<void> logout() async {
     await api.logout();
     _realtime.disconnect();
+    await _clearOfflineAuth();
     user = null;
     trackers = [];
     currentTracker = null;
@@ -387,10 +531,26 @@ class AppState extends ChangeNotifier {
     isLoading = true;
     notifyListeners();
     await _loadPendingQueue();
-    user = await api.checkSession();
-    if (user != null) {
-      await _loadTrackers();
-      _connectRealtimeIfReady();
+    try {
+      user = await api.checkSession();
+      if (user != null) {
+        await _loadTrackers();
+        _connectRealtimeIfReady();
+      }
+    } catch (_) {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_offlineAuthKey);
+      if (raw != null && raw.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(raw) as Map<String, dynamic>;
+          final userJson = decoded['user'];
+          if (userJson is Map<String, dynamic>) {
+            user = User.fromJson(userJson);
+            isOffline = true;
+            await _restoreCachedWorkspace();
+          }
+        } catch (_) {}
+      }
     }
     isLoading = false;
     notifyListeners();
@@ -401,6 +561,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> _loadTrackers() async {
     trackers = await api.getTrackers();
+    await _cacheTrackers(trackers);
     if (trackers.isNotEmpty) {
       final prefs = await SharedPreferences.getInstance();
       final savedTrackerId = prefs.getInt('currentTrackerId');
@@ -452,6 +613,7 @@ class AppState extends ChangeNotifier {
     try {
       final s = await api.getSettings(activeTracker.id);
       allTrackerSettings[activeTracker.id] = s;
+      await _cacheTrackerSettings();
       if (currentTracker?.id == activeTracker.id) {
         statusColors = _filterStatusMap(s['colors'] ?? activeTracker.statusColors);
         statusNames = _filterStatusMap(s['names'] ?? activeTracker.statusNames);
@@ -469,11 +631,13 @@ class AppState extends ChangeNotifier {
     for (final t in trackers) {
       try {
         allTrackerBlocks[t.id] = await api.getPowerBlocks(t.id);
+        await _cacheBlocks(t.id, allTrackerBlocks[t.id] ?? const []);
       } catch (_) {
         allTrackerBlocks[t.id] = [];
       }
       try {
         allTrackerSettings[t.id] = await api.getSettings(t.id);
+        await _cacheTrackerSettings();
       } catch (_) {
         allTrackerSettings[t.id] = {};
       }
@@ -728,6 +892,28 @@ class AppState extends ChangeNotifier {
         'assignments': mergedAssignments,
       });
       await _savePendingQueue();
+      for (final claim in normalizedClaims) {
+        final draft = claim['scanDraft'];
+        if (draft is! Map<String, dynamic>) {
+          continue;
+        }
+        _pendingQueue.add({
+          'type': 'claim_scan',
+          'blockId': blockId,
+          'people': List<String>.from(claim['people'] ?? const <String>[]),
+          'assignments': Map<String, List<int>>.from(
+            (claim['assignments'] as Map? ?? const {}).map(
+              (key, value) => MapEntry(
+                key.toString(),
+                List<int>.from(value as List? ?? const []),
+              ),
+            ),
+          ),
+          'draft': draft,
+          'trackerId': currentTracker?.id,
+        });
+      }
+      await _savePendingQueue();
       return true;
     }
 
@@ -832,8 +1018,16 @@ class AppState extends ChangeNotifier {
     }
 
     if (isOffline) {
-      await loadBlocks();
-      return false;
+      _pendingQueue.add({
+        'type': 'claim_scan',
+        'blockId': blockId,
+        'people': normalized,
+        'assignments': assignments,
+        'draft': draft,
+        'trackerId': currentTracker?.id,
+      });
+      await _savePendingQueue();
+      return true;
     }
 
     try {

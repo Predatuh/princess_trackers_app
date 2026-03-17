@@ -1,3 +1,5 @@
+const Set<String> _retiredStatusTypes = {'quality_check', 'quality_docs'};
+
 class Tracker {
   final int id;
   final String name;
@@ -33,6 +35,13 @@ class Tracker {
 
   factory Tracker.fromJson(Map<String, dynamic> j) {
     int toInt(dynamic v) => v is int ? v : int.tryParse(v.toString()) ?? 0;
+    final statusTypes = List<String>.from(j['status_types'] ?? [])
+        .where((statusType) => !_retiredStatusTypes.contains(statusType))
+        .toList();
+    final statusColors = Map<String, String>.from(j['status_colors'] ?? {})
+      ..removeWhere((key, _) => _retiredStatusTypes.contains(key));
+    final statusNames = Map<String, String>.from(j['status_names'] ?? {})
+      ..removeWhere((key, _) => _retiredStatusTypes.contains(key));
     return Tracker(
       id: toInt(j['id']),
       name: j['name'] ?? '',
@@ -44,10 +53,27 @@ class Tracker {
       dashboardBlocksLabel: j['dashboard_blocks_label'] ?? 'Power Blocks',
       dashboardOpenLabel: j['dashboard_open_label'] ?? 'Open Tracker',
       icon: j['icon'] ?? '📋',
-      statusTypes: List<String>.from(j['status_types'] ?? []),
-      statusColors: Map<String, String>.from(j['status_colors'] ?? {}),
-      statusNames: Map<String, String>.from(j['status_names'] ?? {}),
+      statusTypes: statusTypes,
+      statusColors: statusColors,
+      statusNames: statusNames,
       isActive: j['is_active'] ?? true,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'slug': slug,
+        'item_name_singular': itemNameSingular,
+        'item_name_plural': itemNamePlural,
+        'stat_label': statLabel,
+        'dashboard_progress_label': dashboardProgressLabel,
+        'dashboard_blocks_label': dashboardBlocksLabel,
+        'dashboard_open_label': dashboardOpenLabel,
+        'icon': icon,
+        'status_types': statusTypes,
+        'status_colors': statusColors,
+        'status_names': statusNames,
+        'is_active': isActive,
+      };
 }

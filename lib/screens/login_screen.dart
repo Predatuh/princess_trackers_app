@@ -1,6 +1,8 @@
 ﻿import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 
@@ -20,6 +22,7 @@ class _LoginScreenState extends State<LoginScreen>
   final _jobTokenCtrl = TextEditingController();
   bool _rememberLogin = false;
   bool _didApplyRouteArgs = false;
+  bool _restoringSession = true;
   bool _submitting = false;
   _AuthMode _mode = _AuthMode.signIn;
   String? _error;
@@ -36,6 +39,19 @@ class _LoginScreenState extends State<LoginScreen>
       vsync: this,
       duration: const Duration(milliseconds: 3200),
     )..repeat();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _restoreSessionIfPossible());
+  }
+
+  Future<void> _restoreSessionIfPossible() async {
+    final restored = await context.read<AppState>().tryRestoreSession();
+    if (!mounted) return;
+    if (restored) {
+      Navigator.pushReplacementNamed(context, '/home');
+      return;
+    }
+    setState(() {
+      _restoringSession = false;
+    });
   }
 
   @override
@@ -281,7 +297,7 @@ class _LoginScreenState extends State<LoginScreen>
                     ),
                     const SizedBox(height: 4),
                     IgnorePointer(
-                      ignoring: _submitting,
+                      ignoring: _submitting || _restoringSession,
                       child: GlassCard(
                         padding: const EdgeInsets.all(28),
                         glowColor: C.cyan,
@@ -331,6 +347,28 @@ class _LoginScreenState extends State<LoginScreen>
                               const SizedBox(height: 14),
                             ],
                             _buildRememberLogin(),
+                            if (_restoringSession) ...[
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: C.cyan,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'Restoring your last session on this device...',
+                                      style: AppTheme.font(size: 12, color: C.textSub),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                             if (_info != null) ...[
                               const SizedBox(height: 12),
                               _buildInfoBanner(),

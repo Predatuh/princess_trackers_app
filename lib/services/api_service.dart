@@ -117,6 +117,7 @@ class ApiService {
 
   Future<void> logout() async {
     await _client.post(Uri.parse('$_rootUrl/api/auth/logout'), headers: _headers);
+    await clearPersistedCookies();
     currentUser = null;
   }
 

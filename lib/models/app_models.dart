@@ -33,6 +33,18 @@ class User {
         permissions: List<String>.from(j['permissions'] ?? const []),
       );
 
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'username': username,
+        'email': email,
+        'job_site_name': jobSiteName,
+        'email_verified': emailVerified,
+        'is_admin': isAdmin,
+        'role': role,
+        'permissions': permissions,
+      };
+
   bool get canAccessAdmin {
     if (isAdmin || role == 'admin') return true;
     return permissions.contains('admin_settings') ||

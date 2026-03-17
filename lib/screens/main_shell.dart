@@ -37,9 +37,20 @@ class _MainShellState extends State<MainShell>
       backgroundColor: C.bg,
       extendBody: true,
       appBar: _buildAppBar(state),
-      body: IndexedStack(
-        index: state.selectedTab,
-        children: _tabs,
+      body: Column(
+        children: [
+          if (state.isOffline || state.pendingQueueCount > 0)
+            _OfflineBanner(
+              isOffline: state.isOffline,
+              pendingQueueCount: state.pendingQueueCount,
+            ),
+          Expanded(
+            child: IndexedStack(
+              index: state.selectedTab,
+              children: _tabs,
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: FuturisticNavBar(
         currentIndex: state.selectedTab,
@@ -120,6 +131,48 @@ class _MainShellState extends State<MainShell>
         ),
         const SizedBox(width: 4),
       ],
+    );
+  }
+}
+
+class _OfflineBanner extends StatelessWidget {
+  final bool isOffline;
+  final int pendingQueueCount;
+
+  const _OfflineBanner({
+    required this.isOffline,
+    required this.pendingQueueCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isOffline ? C.gold : C.cyan;
+    final icon = isOffline ? Icons.cloud_off_rounded : Icons.sync_rounded;
+    final text = isOffline
+        ? 'Offline mode. $pendingQueueCount change${pendingQueueCount == 1 ? '' : 's'} waiting to sync.'
+        : 'Back online. Sync queue: $pendingQueueCount change${pendingQueueCount == 1 ? '' : 's'}.';
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: AppTheme.font(size: 12, weight: FontWeight.w700, color: color),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
