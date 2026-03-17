@@ -1030,6 +1030,39 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                 const SizedBox(height: 4),
                 Text('${(pct * 100).toInt()}% termed',
                     style: AppTheme.font(size: 12, color: C.textSub)),
+                if (block.hasIfc) ...[
+                  const SizedBox(height: 10),
+                  GestureDetector(
+                    onTap: () => Navigator.pushNamed(context, '/ifc', arguments: {
+                      'block_id': block.id,
+                      'block_name': block.name,
+                      'ifc_page_number': block.ifcPageNumber,
+                      'ifc_filename': block.ifcFilename,
+                    }),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: C.cyan.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: C.cyan.withValues(alpha: 0.25)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.description_outlined, size: 16, color: C.cyan),
+                          const SizedBox(width: 6),
+                          Text('View IFC',
+                              style: AppTheme.font(size: 12, weight: FontWeight.w700, color: C.cyan)),
+                          if (block.ifcPageNumber != null) ...[
+                            const SizedBox(width: 6),
+                            Text('Page ${block.ifcPageNumber}',
+                                style: AppTheme.font(size: 10, color: C.textSub)),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
                 if (!canClaimFromHere) ...[
                   const SizedBox(height: 8),
                   Text(

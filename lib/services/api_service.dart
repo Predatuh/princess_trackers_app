@@ -544,4 +544,17 @@ class ApiService {
     );
     return res.statusCode == 200;
   }
+
+  // ── IFC ───────────────────────────────────────────────
+
+  Future<Uint8List?> getIfcPdf(int blockId) async {
+    final res = await _client.get(
+      Uri.parse('$_rootUrl/api/tracker/power-blocks/$blockId/ifc'),
+      headers: _headers,
+    );
+    if (res.statusCode == 200) {
+      return res.bodyBytes;
+    }
+    return null;
+  }
 }

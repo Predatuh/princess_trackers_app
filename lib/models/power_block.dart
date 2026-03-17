@@ -10,6 +10,10 @@ class PowerBlock {
   final Map<String, List<int>> claimAssignments;
   final String? claimedAt;
   final String? zone;
+  final bool hasIfc;
+  final String? ifcUrl;
+  final String? ifcFilename;
+  final int? ifcPageNumber;
 
   PowerBlock({
     required this.id,
@@ -23,6 +27,10 @@ class PowerBlock {
     this.claimAssignments = const {},
     this.claimedAt,
     this.zone,
+    this.hasIfc = false,
+    this.ifcUrl,
+    this.ifcFilename,
+    this.ifcPageNumber,
   });
 
   factory PowerBlock.fromJson(Map<String, dynamic> j) {
@@ -57,6 +65,10 @@ class PowerBlock {
       claimAssignments: assignments,
       claimedAt: j['claimed_at']?.toString(),
       zone: j['zone']?.toString(),
+      hasIfc: j['has_ifc'] == true,
+      ifcUrl: j['ifc_url']?.toString(),
+      ifcFilename: j['ifc_filename']?.toString(),
+      ifcPageNumber: j['ifc_page_number'] != null ? toInt(j['ifc_page_number']) : null,
     );
   }
 
@@ -87,6 +99,10 @@ class PowerBlock {
       claimAssignments: claimAssignments ?? this.claimAssignments,
       claimedAt: claimedAt,
       zone: zone,
+      hasIfc: hasIfc,
+      ifcUrl: ifcUrl,
+      ifcFilename: ifcFilename,
+      ifcPageNumber: ifcPageNumber,
     );
   }
 }

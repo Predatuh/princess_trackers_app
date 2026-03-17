@@ -760,9 +760,73 @@ class _MapTabState extends State<MapTab> {
     if (pbId == null) return;
     final state = context.read<AppState>();
     final block = state.blocks.where((b) => b.id == pbId).firstOrNull;
-    if (block != null) {
+    if (block == null) return;
+
+    final hasIfc = areaStatus['has_ifc'] == true || block.hasIfc;
+
+    if (!hasIfc) {
       Navigator.pushNamed(context, '/block', arguments: block);
+      return;
     }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: C.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0x30FFFFFF),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Text(block.name,
+                    style: AppTheme.font(size: 16, weight: FontWeight.w700)),
+                const SizedBox(height: 12),
+                ListTile(
+                  leading: Icon(Icons.visibility_rounded, color: C.cyan),
+                  title: Text('View Block Details',
+                      style: AppTheme.font(size: 14, color: C.text)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    Navigator.pushNamed(context, '/block', arguments: block);
+                  },
+                ),
+                ListTile(
+                  leading: Icon(Icons.description_outlined, color: C.gold),
+                  title: Text('View IFC Drawing',
+                      style: AppTheme.font(size: 14, color: C.text)),
+                  subtitle: block.ifcPageNumber != null
+                      ? Text('Page ${block.ifcPageNumber}',
+                          style: AppTheme.font(size: 11, color: C.textDim))
+                      : null,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    Navigator.pushNamed(context, '/ifc', arguments: {
+                      'block_id': block.id,
+                      'block_name': block.name,
+                      'ifc_page_number': block.ifcPageNumber,
+                      'ifc_filename': block.ifcFilename,
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _instantDelete(dynamic area) async {

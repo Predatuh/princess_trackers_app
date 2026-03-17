@@ -8,6 +8,7 @@ import 'screens/login_screen.dart';
 import 'screens/video_transition_screen.dart';
 import 'screens/main_shell.dart';
 import 'screens/block_detail_screen.dart';
+import 'screens/ifc_viewer_screen.dart';
 
 void main() {
   runApp(
@@ -50,6 +51,11 @@ class PrincessTrackersApp extends StatelessWidget {
           case '/block':
             return MaterialPageRoute(
               builder: (_) => const BlockDetailScreen(),
+              settings: settings,
+            );
+          case '/ifc':
+            return MaterialPageRoute(
+              builder: (_) => const IfcViewerScreen(),
               settings: settings,
             );
           default:
