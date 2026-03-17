@@ -552,7 +552,7 @@ class _MapTabState extends State<MapTab> {
         },
         child: Container(
           decoration: BoxDecoration(
-            color: markerColor.withValues(alpha: 0.85),
+            color: markerColor,
             border: Border.all(color: markerColor, width: 1.5),
             borderRadius: BorderRadius.circular(3),
           ),
