@@ -33,11 +33,28 @@ class PrincessTrackersApp extends StatelessWidget {
       locale: DevicePreview.locale(context),
       builder: DevicePreview.appBuilder,
       initialRoute: '/',
-      routes: {
-        '/': (_) => const LoginScreen(),
-        '/video': (_) => const VideoTransitionScreen(),
-        '/home': (_) => const MainShell(),
-        '/block': (_) => const BlockDetailScreen(),
+      onGenerateRoute: (settings) {
+        switch (settings.name) {
+          case '/':
+            return MaterialPageRoute(builder: (_) => const LoginScreen());
+          case '/video':
+            return PageRouteBuilder(
+              settings: settings,
+              transitionDuration: const Duration(milliseconds: 520),
+              reverseTransitionDuration: Duration.zero,
+              pageBuilder: (_, __, ___) => const VideoTransitionScreen(),
+              transitionsBuilder: (_, __, ___, child) => child,
+            );
+          case '/home':
+            return MaterialPageRoute(builder: (_) => const MainShell());
+          case '/block':
+            return MaterialPageRoute(
+              builder: (_) => const BlockDetailScreen(),
+              settings: settings,
+            );
+          default:
+            return MaterialPageRoute(builder: (_) => const LoginScreen());
+        }
       },
     );
   }

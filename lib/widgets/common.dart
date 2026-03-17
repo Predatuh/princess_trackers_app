@@ -28,9 +28,17 @@ class GlassCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(borderRadius),
-        boxShadow: glowColor != null
-            ? AppTheme.neonGlow(glowColor!, blur: glowBlur ?? 20)
-            : null,
+        boxShadow: [
+          ...(glowColor != null
+              ? AppTheme.neonGlowStrong(glowColor!)
+              : AppTheme.neonGlow(C.cyan, blur: 18, opacity: 0.10)),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+            spreadRadius: -12,
+          ),
+        ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(borderRadius),
@@ -41,7 +49,7 @@ class GlassCard extends StatelessWidget {
             decoration: BoxDecoration(
               color: const Color(0x12FFFFFF),
               borderRadius: BorderRadius.circular(borderRadius),
-              border: Border.all(color: const Color(0x18FFFFFF)),
+              border: Border.all(color: C.cyan.withValues(alpha: 0.12)),
             ),
             child: child,
           ),
@@ -62,6 +70,7 @@ class NeonButton extends StatefulWidget {
   final List<Color> gradientColors;
   final double height;
   final IconData? icon;
+  final Color foregroundColor;
 
   const NeonButton({
     super.key,
@@ -71,15 +80,17 @@ class NeonButton extends StatefulWidget {
     this.gradientColors = const [C.cyan, Color(0xFF0090cc)],
     this.height = 56,
     this.icon,
+    this.foregroundColor = Colors.white,
   });
 
   @override
   State<NeonButton> createState() => _NeonButtonState();
 }
 
-class _NeonButtonState extends State<NeonButton> with SingleTickerProviderStateMixin {
+class _NeonButtonState extends State<NeonButton> with TickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _shimmer;
+  late AnimationController _tapController;
 
   @override
   void initState() {
@@ -91,21 +102,29 @@ class _NeonButtonState extends State<NeonButton> with SingleTickerProviderStateM
     _shimmer = Tween(begin: -1.0, end: 2.0).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
     );
+    _tapController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 520),
+    );
   }
 
   @override
   void dispose() {
     _controller.dispose();
+    _tapController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: _shimmer,
+      animation: Listenable.merge([_shimmer, _tapController]),
       builder: (context, child) {
+        final tapProgress = Curves.easeOutCubic.transform(_tapController.value);
+        final pressScale = 1.0 - (math.sin(tapProgress * math.pi) * 0.025);
         return Container(
           height: widget.height,
+          transform: Matrix4.identity()..scale(pressScale, pressScale),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             gradient: LinearGradient(
@@ -115,9 +134,9 @@ class _NeonButtonState extends State<NeonButton> with SingleTickerProviderStateM
             ),
             boxShadow: [
               BoxShadow(
-                color: widget.gradientColors.first.withValues(alpha: 0.4),
-                blurRadius: 20,
-                spreadRadius: -4,
+                color: widget.gradientColors.first.withValues(alpha: 0.4 + (0.15 * tapProgress)),
+                blurRadius: 20 + (16 * tapProgress),
+                spreadRadius: -4 + (2 * tapProgress),
                 offset: const Offset(0, 4),
               ),
             ],
@@ -126,9 +145,24 @@ class _NeonButtonState extends State<NeonButton> with SingleTickerProviderStateM
             color: Colors.transparent,
             child: InkWell(
               borderRadius: BorderRadius.circular(16),
-              onTap: widget.loading ? null : widget.onPressed,
+              onTap: widget.loading
+                  ? null
+                  : () {
+                      _tapController.forward(from: 0);
+                      widget.onPressed?.call();
+                    },
               child: Stack(
                 children: [
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: CustomPaint(
+                        painter: _NeonButtonSparkPainter(
+                          progress: tapProgress,
+                          color: widget.gradientColors.first,
+                        ),
+                      ),
+                    ),
+                  ),
                   // Shimmer overlay
                   Positioned.fill(
                     child: ClipRRect(
@@ -150,19 +184,19 @@ class _NeonButtonState extends State<NeonButton> with SingleTickerProviderStateM
                   ),
                   Center(
                     child: widget.loading
-                        ? const SizedBox(
+                        ? SizedBox(
                             width: 24,
                             height: 24,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: Colors.white,
+                              color: widget.foregroundColor,
                             ),
                           )
                         : Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               if (widget.icon != null) ...[
-                                Icon(widget.icon, color: Colors.white, size: 20),
+                                Icon(widget.icon, color: widget.foregroundColor, size: 20),
                                 const SizedBox(width: 10),
                               ],
                               Text(
@@ -170,7 +204,7 @@ class _NeonButtonState extends State<NeonButton> with SingleTickerProviderStateM
                                 style: AppTheme.font(
                                   size: 16,
                                   weight: FontWeight.w700,
-                                  color: Colors.white,
+                                  color: widget.foregroundColor,
                                   spacing: 1,
                                 ),
                               ),
@@ -184,6 +218,63 @@ class _NeonButtonState extends State<NeonButton> with SingleTickerProviderStateM
         );
       },
     );
+  }
+}
+
+class _NeonButtonSparkPainter extends CustomPainter {
+  final double progress;
+  final Color color;
+
+  const _NeonButtonSparkPainter({
+    required this.progress,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (progress <= 0) return;
+
+    final glowCenter = Offset(size.width * 0.72, size.height * 0.5);
+    final burstRadius = size.height * (0.18 + progress * 0.7);
+    final fade = (1 - progress).clamp(0.0, 1.0);
+
+    canvas.drawCircle(
+      glowCenter,
+      burstRadius,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            Colors.white.withValues(alpha: 0.32 * fade),
+            color.withValues(alpha: 0.18 * fade),
+            Colors.transparent,
+          ],
+        ).createShader(Rect.fromCircle(center: glowCenter, radius: burstRadius)),
+    );
+
+    for (var index = 0; index < 9; index++) {
+      final angle = (-0.9 + (index * 0.22)) * math.pi;
+      final distance = size.height * (0.16 + progress * (0.36 + (index % 3) * 0.06));
+      final start = Offset(
+        glowCenter.dx + math.cos(angle) * size.height * 0.12,
+        glowCenter.dy + math.sin(angle) * size.height * 0.12,
+      );
+      final end = Offset(
+        glowCenter.dx + math.cos(angle) * distance,
+        glowCenter.dy + math.sin(angle) * distance,
+      );
+      final sparkColor = index.isEven ? Colors.white : color;
+      final paint = Paint()
+        ..color = sparkColor.withValues(alpha: 0.9 * fade)
+        ..strokeWidth = index.isEven ? 1.8 : 1.2
+        ..strokeCap = StrokeCap.round
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.5);
+      canvas.drawLine(start, end, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _NeonButtonSparkPainter oldDelegate) {
+    return oldDelegate.progress != progress || oldDelegate.color != color;
   }
 }
 
@@ -239,24 +330,24 @@ class _GlowTextFieldState extends State<GlowTextField> {
         onTap: () => setState(() => _focused = true),
         onEditingComplete: () => setState(() => _focused = false),
         decoration: InputDecoration(
-          labelText: widget.label,
-          labelStyle: AppTheme.font(size: 14, color: C.textDim),
+          hintText: widget.label,
+          hintStyle: AppTheme.font(size: 14, color: C.textDim.withValues(alpha: 0.72)),
           counterText: '',
           prefixIcon: Icon(widget.icon, color: _focused ? C.cyan : C.textDim, size: 20),
           filled: true,
-          fillColor: const Color(0x0AFFFFFF),
+          fillColor: C.surfaceLight.withValues(alpha: 0.86),
           contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: Color(0x14FFFFFF)),
+            borderSide: const BorderSide(color: Color(0x22FFFFFF)),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: Color(0x14FFFFFF)),
+            borderSide: const BorderSide(color: Color(0x22FFFFFF)),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: C.cyan, width: 1.5),
+            borderSide: BorderSide(color: C.cyan.withValues(alpha: 0.85), width: 1.5),
           ),
         ),
       ),
@@ -281,13 +372,12 @@ class FuturisticNavBar extends StatelessWidget {
   });
 
   static const _baseItems = [
-    _NavItem(Icons.dashboard_rounded, 'Home'),
-    _NavItem(Icons.widgets_rounded, 'Blocks'),
-    _NavItem(Icons.map_rounded, 'Map'),
-    _NavItem(Icons.edit_note_rounded, 'Log'),
-    _NavItem(Icons.insights_rounded, 'Reports'),
+    _NavItem(Icons.dashboard_rounded, 'Home', 0),
+    _NavItem(Icons.map_rounded, 'Map', 2),
+    _NavItem(Icons.assignment_turned_in_rounded, 'Claim', 3),
+    _NavItem(Icons.insights_rounded, 'Reports', 4),
   ];
-  static const _adminItem = _NavItem(Icons.settings_rounded, 'Admin');
+  static const _adminItem = _NavItem(Icons.settings_rounded, 'Admin', 5);
 
   @override
   Widget build(BuildContext context) {
@@ -319,11 +409,11 @@ class FuturisticNavBar extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: List.generate(items.length, (i) {
-              final active = i == currentIndex;
+              final active = items[i].tabIndex == currentIndex;
               return Expanded(
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: () => onTap(i),
+                  onTap: () => onTap(items[i].tabIndex),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 250),
                     curve: Curves.easeOutCubic,
@@ -381,7 +471,8 @@ class FuturisticNavBar extends StatelessWidget {
 class _NavItem {
   final IconData icon;
   final String label;
-  const _NavItem(this.icon, this.label);
+  final int tabIndex;
+  const _NavItem(this.icon, this.label, this.tabIndex);
 }
 
 // ═══════════════════════════════════════════════════════════

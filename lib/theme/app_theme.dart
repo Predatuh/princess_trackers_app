@@ -63,6 +63,59 @@ class AppTheme {
           elevation: 0,
           scrolledUnderElevation: 0,
         ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: C.surfaceLight.withValues(alpha: 0.68),
+          labelStyle: font(size: 13, color: C.textSub),
+          hintStyle: font(size: 13, color: C.textDim),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: Color(0x22FFFFFF)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: Color(0x22FFFFFF)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(color: C.cyan.withValues(alpha: 0.75), width: 1.4),
+          ),
+        ),
+        dialogTheme: DialogThemeData(
+          backgroundColor: C.surface,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          titleTextStyle: font(size: 18, weight: FontWeight.w700),
+          contentTextStyle: font(size: 13, color: C.textSub),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: C.cyan,
+            foregroundColor: C.bg,
+            disabledBackgroundColor: C.surfaceLight,
+            disabledForegroundColor: C.textDim,
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            textStyle: font(size: 13, weight: FontWeight.w700),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: C.text,
+            side: const BorderSide(color: C.cyan, width: 1.2),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            textStyle: font(size: 13, weight: FontWeight.w700),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          ),
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+            foregroundColor: C.textSub,
+            textStyle: font(size: 13, weight: FontWeight.w700),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        ),
         useMaterial3: true,
       );
 
@@ -95,5 +148,18 @@ class AppTheme {
         border: Border.all(
           color: borderColor ?? Colors.white.withValues(alpha: borderOpacity),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: C.cyan.withValues(alpha: 0.06),
+            blurRadius: 22,
+            spreadRadius: -10,
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.16),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
+            spreadRadius: -14,
+          ),
+        ],
       );
 }

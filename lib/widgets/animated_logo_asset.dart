@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
@@ -231,6 +232,15 @@ class AnimatedCrownAsset extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS) {
+      return Image.asset(
+        fallbackAsset,
+        fit: fit,
+        filterQuality: filterQuality,
+      );
+    }
+
     return AnimatedVideoAsset(
       assetPath: 'assets/animations/crown1.mp4',
       fallbackAsset: fallbackAsset,
