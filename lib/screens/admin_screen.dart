@@ -183,10 +183,89 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
     if (mounted) await _loadUsers();
   }
 
+  Future<void> _resetUserPin(int userId, String name) async {
+    final pinCtrl = TextEditingController();
+    String? errorText;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: C.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Color(0x18FFFFFF)),
+          ),
+          title: Text('Reset PIN', style: AppTheme.font(size: 16, weight: FontWeight.w700)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Set a new 4-digit PIN for $name.', style: AppTheme.font(size: 13, color: C.textSub)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: pinCtrl,
+                style: AppTheme.font(size: 14),
+                keyboardType: TextInputType.number,
+                maxLength: 4,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: 'New PIN',
+                  labelStyle: AppTheme.font(size: 13, color: C.textDim),
+                  counterText: '',
+                  filled: true,
+                  fillColor: const Color(0x10FFFFFF),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Color(0x18FFFFFF)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Color(0x18FFFFFF)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: C.cyan.withValues(alpha: 0.5)),
+                  ),
+                ),
+              ),
+              if (errorText != null) ...[
+                const SizedBox(height: 8),
+                Text(errorText!, style: AppTheme.font(size: 12, color: C.pink)),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('Cancel', style: AppTheme.font(color: C.textDim)),
+            ),
+            TextButton(
+              onPressed: () async {
+                final pin = pinCtrl.text.trim();
+                if (pin.length != 4 || int.tryParse(pin) == null) {
+                  setDialogState(() => errorText = 'PIN must be 4 digits');
+                  return;
+                }
+                final ok = await context.read<AppState>().api.resetUserPin(userId, pin);
+                if (!ok) {
+                  setDialogState(() => errorText = 'Could not reset PIN');
+                  return;
+                }
+                if (ctx.mounted) Navigator.pop(ctx);
+                _showSnack('PIN updated for "$name"');
+              },
+              child: Text('SAVE', style: AppTheme.font(color: C.cyan, weight: FontWeight.w700)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showCreateUserDialog() {
     final nameCtrl = TextEditingController();
     final pinCtrl = TextEditingController();
-    final emailCtrl = TextEditingController();
     final jobTokenCtrl = TextEditingController();
     String? errorText;
 
@@ -255,30 +334,6 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
               ),
               const SizedBox(height: 12),
               TextField(
-                controller: emailCtrl,
-                style: AppTheme.font(size: 14),
-                keyboardType: TextInputType.emailAddress,
-                decoration: InputDecoration(
-                  labelText: 'Recovery Email',
-                  labelStyle: AppTheme.font(size: 13, color: C.textDim),
-                  filled: true,
-                  fillColor: const Color(0x10FFFFFF),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Color(0x18FFFFFF)),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Color(0x18FFFFFF)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide(color: C.cyan.withValues(alpha: 0.5)),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
                 controller: jobTokenCtrl,
                 style: AppTheme.font(size: 14),
                 keyboardType: TextInputType.number,
@@ -316,7 +371,6 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
               onPressed: () async {
                 final name = nameCtrl.text.trim();
                 final pin = pinCtrl.text.trim();
-                final email = emailCtrl.text.trim();
                 final jobToken = jobTokenCtrl.text.trim();
                 if (name.isEmpty) {
                   setDialogState(() => errorText = 'Name is required');
@@ -324,10 +378,6 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
                 }
                 if (pin.length != 4 || int.tryParse(pin) == null) {
                   setDialogState(() => errorText = 'PIN must be 4 digits');
-                  return;
-                }
-                if (email.isEmpty || !email.contains('@')) {
-                  setDialogState(() => errorText = 'A valid recovery email is required');
                   return;
                 }
                 if (jobToken.isEmpty) {
@@ -338,18 +388,10 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
                   final result = await context.read<AppState>().api.adminCreateUser(
                     name,
                     pin,
-                    email: email,
                     jobToken: jobToken,
                   );
-                  if (!result.verificationRequired) {
-                    setDialogState(() => errorText = result.error ?? 'Could not create user');
-                    return;
-                  }
                   if (ctx.mounted) Navigator.pop(ctx);
-                  final previewCode = result.previewCode == null || result.previewCode!.isEmpty
-                      ? ''
-                      : ' Preview code: ${result.previewCode!}';
-                  _showSnack('User "$name" created. They must verify their email before signing in.$previewCode');
+                  _showSnack(result['message']?.toString() ?? 'User "$name" created.');
                   await _loadUsers();
                 } on Exception catch (e) {
                   setDialogState(() => errorText = e.toString().replaceFirst('Exception: ', ''));
@@ -905,7 +947,8 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
               final user = _users[i] as Map;
               final userId = user['id'] as int? ?? 0;
               final name = user['name']?.toString() ?? 'User $userId';
-                final currentRole = user['role']?.toString() ?? 'user';
+              final currentRole = user['role']?.toString() ?? 'user';
+              final isMainAdmin = user['username']?.toString() == 'admin';
               final safeRole =
                   roleOptions.contains(currentRole) ? currentRole : 'user';
 
@@ -914,63 +957,90 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
                 child: GlassCard(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  child: Row(
+                  child: Column(
                     children: [
-                      Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          color: C.purple.withValues(alpha: 0.2),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                              color: C.purple.withValues(alpha: 0.3)),
-                        ),
-                        child: Center(
-                          child: Text(
-                            name.isNotEmpty ? name[0].toUpperCase() : '?',
-                            style: AppTheme.font(
-                                size: 16,
-                                weight: FontWeight.w700,
-                                color: C.purple),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(name,
+                      Row(
+                        children: [
+                          Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: C.purple.withValues(alpha: 0.2),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                  color: C.purple.withValues(alpha: 0.3)),
+                            ),
+                            child: Center(
+                              child: Text(
+                                name.isNotEmpty ? name[0].toUpperCase() : '?',
                                 style: AppTheme.font(
-                                    size: 14, weight: FontWeight.w600)),
-                            Text(
-                              roleLabels[currentRole] ?? currentRole,
-                              style:
-                                  AppTheme.font(size: 11, color: C.textDim),
+                                    size: 16,
+                                    weight: FontWeight.w700,
+                                    color: C.purple),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(name,
+                                    style: AppTheme.font(
+                                        size: 14, weight: FontWeight.w600)),
+                                Text(
+                                  roleLabels[currentRole] ?? currentRole,
+                                  style: AppTheme.font(size: 11, color: C.textDim),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (!isMainAdmin)
+                            DropdownButton<String>(
+                              value: safeRole,
+                              dropdownColor: C.surface,
+                              style: AppTheme.font(size: 12),
+                              underline: const SizedBox.shrink(),
+                              icon: Icon(Icons.expand_more_rounded,
+                                  color: C.cyan.withValues(alpha: 0.7), size: 18),
+                              items: roleOptions
+                                  .map((r) => DropdownMenuItem(
+                                        value: r,
+                                        child: Text(roleLabels[r] ?? r,
+                                            style: AppTheme.font(size: 12)),
+                                      ))
+                                  .toList(),
+                              onChanged: (r) {
+                                if (r != null && r != currentRole) {
+                                  _setUserRole(userId, r);
+                                }
+                              },
+                            ),
+                        ],
+                      ),
+                      if (!isMainAdmin) ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Forgot PIN? Reset it here and tell them the new one.',
+                                style: AppTheme.font(size: 11, color: C.textDim),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            SizedBox(
+                              height: 38,
+                              child: NeonButton(
+                                label: 'RESET PIN',
+                                icon: Icons.lock_reset_rounded,
+                                onPressed: () => _resetUserPin(userId, name),
+                                height: 38,
+                              ),
                             ),
                           ],
                         ),
-                      ),
-                      DropdownButton<String>(
-                        value: safeRole,
-                        dropdownColor: C.surface,
-                        style: AppTheme.font(size: 12),
-                        underline: const SizedBox.shrink(),
-                        icon: Icon(Icons.expand_more_rounded,
-                            color: C.cyan.withValues(alpha: 0.7), size: 18),
-                        items: roleOptions
-                            .map((r) => DropdownMenuItem(
-                                  value: r,
-                                  child: Text(roleLabels[r] ?? r,
-                                      style: AppTheme.font(size: 12)),
-                                ))
-                            .toList(),
-                        onChanged: (r) {
-                          if (r != null && r != currentRole) {
-                            _setUserRole(userId, r);
-                          }
-                        },
-                      ),
+                      ],
                     ],
                   ),
                 ),

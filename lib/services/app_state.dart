@@ -347,7 +347,6 @@ class AppState extends ChangeNotifier {
   Future<AuthFlowResult> register(
     String name,
     String pin, {
-    required String email,
     required String jobToken,
   }) async {
     isLoading = true;
@@ -355,57 +354,13 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     AuthFlowResult result;
     try {
-      result = await api.createUser(name, pin, email: email, jobToken: jobToken);
+      result = await api.createUser(name, pin, jobToken: jobToken);
       if (!result.verificationRequired && result.user == null) {
         error = result.error ?? 'Could not create account';
       }
     } on Exception catch (e) {
       result = AuthFlowResult(error: e.toString().replaceFirst('Exception: ', ''));
       error = result.error;
-    } catch (e) {
-      result = const AuthFlowResult(error: 'Connection error');
-      error = result.error;
-    }
-    isLoading = false;
-    notifyListeners();
-    return result;
-  }
-
-  Future<AuthFlowResult> verifyEmail(String email, String code) async {
-    isLoading = true;
-    error = null;
-    notifyListeners();
-    AuthFlowResult result;
-    try {
-      result = await api.verifyEmail(email, code);
-      user = result.user;
-      if (user != null) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('lastUser', user!.name);
-        await _loadTrackers();
-        _connectRealtimeIfReady();
-      } else {
-        error = result.error ?? 'Verification failed';
-      }
-    } catch (e) {
-      result = const AuthFlowResult(error: 'Connection error');
-      error = result.error;
-    }
-    isLoading = false;
-    notifyListeners();
-    return result;
-  }
-
-  Future<AuthFlowResult> resendVerification(String email) async {
-    isLoading = true;
-    error = null;
-    notifyListeners();
-    AuthFlowResult result;
-    try {
-      result = await api.resendVerification(email);
-      if (!result.verificationRequired) {
-        error = result.error ?? 'Could not resend verification code';
-      }
     } catch (e) {
       result = const AuthFlowResult(error: 'Connection error');
       error = result.error;

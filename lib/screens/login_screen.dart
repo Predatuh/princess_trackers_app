@@ -1,12 +1,10 @@
 ﻿import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../services/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 
-enum _AuthMode { signIn, register, verify }
+enum _AuthMode { signIn, register }
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -19,9 +17,7 @@ class _LoginScreenState extends State<LoginScreen>
     with SingleTickerProviderStateMixin {
   final _nameCtrl = TextEditingController();
   final _pinCtrl = TextEditingController();
-  final _emailCtrl = TextEditingController();
   final _jobTokenCtrl = TextEditingController();
-  final _verificationCodeCtrl = TextEditingController();
   bool _rememberLogin = false;
   bool _didApplyRouteArgs = false;
   bool _submitting = false;
@@ -57,15 +53,10 @@ class _LoginScreenState extends State<LoginScreen>
       if ((args['pin'] as String?)?.isNotEmpty ?? false) {
         _pinCtrl.text = args['pin'] as String;
       }
-      if ((args['email'] as String?)?.isNotEmpty ?? false) {
-        _emailCtrl.text = args['email'] as String;
-      }
       _info = (args['message'] as String?)?.trim();
       _error = null;
       _submitting = false;
-      if (mode == 'verify') {
-        _mode = _AuthMode.verify;
-      } else if (mode == 'register') {
+      if (mode == 'register') {
         _mode = _AuthMode.register;
       }
     });
@@ -102,9 +93,7 @@ class _LoginScreenState extends State<LoginScreen>
   void dispose() {
     _nameCtrl.dispose();
     _pinCtrl.dispose();
-    _emailCtrl.dispose();
     _jobTokenCtrl.dispose();
-    _verificationCodeCtrl.dispose();
     _lightningCtrl.dispose();
     super.dispose();
   }
@@ -113,9 +102,7 @@ class _LoginScreenState extends State<LoginScreen>
     if (_submitting) return;
     final name = _nameCtrl.text.trim();
     final pin = _pinCtrl.text.trim();
-    final email = _emailCtrl.text.trim();
     final jobToken = _jobTokenCtrl.text.trim();
-    final code = _verificationCodeCtrl.text.trim();
 
     switch (_mode) {
       case _AuthMode.signIn:
@@ -125,82 +112,35 @@ class _LoginScreenState extends State<LoginScreen>
         }
         break;
       case _AuthMode.register:
-        if (name.isEmpty || pin.isEmpty || email.isEmpty || jobToken.isEmpty) {
-          setState(() => _error = 'Name, PIN, recovery email, and site token are required');
+        if (name.isEmpty || pin.isEmpty || jobToken.isEmpty) {
+          setState(() => _error = 'Name, PIN, and site token are required');
           return;
         }
         if (pin.length != 4 || int.tryParse(pin) == null) {
           setState(() => _error = 'PIN must be exactly 4 digits');
           return;
         }
-        if (!email.contains('@')) {
-          setState(() => _error = 'Enter a valid recovery email');
-          return;
-        }
-        break;
-      case _AuthMode.verify:
-        if (email.isEmpty || code.isEmpty) {
-          setState(() => _error = 'Enter your email and verification code');
-          return;
-        }
         break;
     }
 
     setState(() {
       _submitting = true;
       _error = null;
-      if (_mode != _AuthMode.verify) {
-        _info = null;
-      }
+      _info = null;
     });
 
-    if (_mode != _AuthMode.verify) {
-      await _persistSavedLogin();
-    }
+    await _persistSavedLogin();
     if (!mounted) return;
 
     Navigator.pushReplacementNamed(context, '/video', arguments: {
       'authAction': switch (_mode) {
         _AuthMode.signIn => 'signIn',
         _AuthMode.register => 'register',
-        _AuthMode.verify => 'verify',
       },
       'name': name,
       'pin': pin,
-      'email': email,
       'jobToken': jobToken,
-      'code': code,
       'heroTag': _logoHeroTag,
-    });
-  }
-
-  Future<void> _resendVerification() async {
-    if (_submitting) return;
-    final email = _emailCtrl.text.trim();
-    if (email.isEmpty) {
-      setState(() => _error = 'Enter your recovery email first');
-      return;
-    }
-
-    setState(() {
-      _submitting = true;
-      _error = null;
-    });
-
-    final result = await context.read<AppState>().resendVerification(email);
-    if (!mounted) return;
-
-    setState(() {
-      _submitting = false;
-      if (result.verificationRequired) {
-        final previewCode = (result.previewCode ?? '').trim();
-        _info = [
-          result.message ?? 'A new verification code has been sent.',
-          if (previewCode.isNotEmpty) 'Preview code: $previewCode',
-        ].join(' ');
-      } else {
-        _error = result.error ?? 'Could not resend verification code';
-      }
     });
   }
 
@@ -208,10 +148,7 @@ class _LoginScreenState extends State<LoginScreen>
     setState(() {
       _mode = nextMode;
       _error = null;
-      if (nextMode != _AuthMode.verify) {
-        _info = null;
-        _verificationCodeCtrl.clear();
-      }
+      _info = null;
     });
   }
 
@@ -219,8 +156,6 @@ class _LoginScreenState extends State<LoginScreen>
     switch (_mode) {
       case _AuthMode.register:
         return 'Create Account';
-      case _AuthMode.verify:
-        return 'Verify Email';
       case _AuthMode.signIn:
         return 'Sign In';
     }
@@ -229,11 +164,9 @@ class _LoginScreenState extends State<LoginScreen>
   String get _subtitle {
     switch (_mode) {
       case _AuthMode.register:
-        return 'Use your recovery email and site token to create your account';
-      case _AuthMode.verify:
-        return 'Enter the code that was sent to your recovery email';
+        return 'Use your site token to create your account';
       case _AuthMode.signIn:
-        return 'Access your tracking dashboard';
+        return 'Access your tracking dashboard. Contact Princess for PIN resets';
     }
   }
 
@@ -241,8 +174,6 @@ class _LoginScreenState extends State<LoginScreen>
     switch (_mode) {
       case _AuthMode.register:
         return 'CREATE ACCOUNT';
-      case _AuthMode.verify:
-        return 'VERIFY EMAIL';
       case _AuthMode.signIn:
         return 'SIGN IN';
     }
@@ -252,8 +183,6 @@ class _LoginScreenState extends State<LoginScreen>
     switch (_mode) {
       case _AuthMode.register:
         return Icons.person_add_rounded;
-      case _AuthMode.verify:
-        return Icons.verified_user_rounded;
       case _AuthMode.signIn:
         return Icons.arrow_forward_rounded;
     }
@@ -263,8 +192,6 @@ class _LoginScreenState extends State<LoginScreen>
     switch (_mode) {
       case _AuthMode.register:
         return const [Color(0xFF00E5FF), Color(0xFF7C4DFF)];
-      case _AuthMode.verify:
-        return const [Color(0xFF63E6BE), Color(0xFF00BFA5)];
       case _AuthMode.signIn:
         return const [Color(0xFFFFD95A), Color(0xFFFF8A00)];
     }
@@ -372,7 +299,7 @@ class _LoginScreenState extends State<LoginScreen>
                               style: AppTheme.font(size: 13, color: C.textDim),
                             ),
                             const SizedBox(height: 28),
-                            if (_mode != _AuthMode.verify) ...[
+                            ...[
                               GlowTextField(
                                 controller: _nameCtrl,
                                 label: 'Name',
@@ -387,22 +314,12 @@ class _LoginScreenState extends State<LoginScreen>
                                 obscure: true,
                                 keyboardType: TextInputType.number,
                                 maxLength: 4,
-                                textInputAction: _mode == _AuthMode.signIn
-                                    ? TextInputAction.done
-                                    : TextInputAction.next,
-                                onSubmitted: _mode == _AuthMode.signIn ? (_) => _submit() : null,
+                                textInputAction: TextInputAction.done,
+                                onSubmitted: (_) => _submit(),
                               ),
                               const SizedBox(height: 16),
                             ],
                             if (_mode == _AuthMode.register) ...[
-                              GlowTextField(
-                                controller: _emailCtrl,
-                                label: 'Recovery Email',
-                                icon: Icons.alternate_email_rounded,
-                                keyboardType: TextInputType.emailAddress,
-                                textInputAction: TextInputAction.next,
-                              ),
-                              const SizedBox(height: 16),
                               GlowTextField(
                                 controller: _jobTokenCtrl,
                                 label: 'Site Token',
@@ -413,37 +330,7 @@ class _LoginScreenState extends State<LoginScreen>
                               ),
                               const SizedBox(height: 14),
                             ],
-                            if (_mode == _AuthMode.verify) ...[
-                              GlowTextField(
-                                controller: _emailCtrl,
-                                label: 'Recovery Email',
-                                icon: Icons.alternate_email_rounded,
-                                keyboardType: TextInputType.emailAddress,
-                                textInputAction: TextInputAction.next,
-                              ),
-                              const SizedBox(height: 16),
-                              GlowTextField(
-                                controller: _verificationCodeCtrl,
-                                label: 'Verification Code',
-                                icon: Icons.mark_email_read_rounded,
-                                keyboardType: TextInputType.number,
-                                maxLength: 6,
-                                textInputAction: TextInputAction.done,
-                                onSubmitted: (_) => _submit(),
-                              ),
-                              const SizedBox(height: 10),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: TextButton(
-                                  onPressed: _submitting ? null : _resendVerification,
-                                  child: Text(
-                                    'Resend code',
-                                    style: AppTheme.font(size: 13, color: C.cyan, weight: FontWeight.w700),
-                                  ),
-                                ),
-                              ),
-                            ],
-                            if (_mode != _AuthMode.verify) _buildRememberLogin(),
+                            _buildRememberLogin(),
                             if (_info != null) ...[
                               const SizedBox(height: 12),
                               _buildInfoBanner(),

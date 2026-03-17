@@ -22,10 +22,8 @@ class _VideoTransitionScreenState extends State<VideoTransitionScreen>
   bool _loginDone = false;
   bool _animationDone = false;
   bool _loginFailed = false;
-  bool _verificationRedirect = false;
   bool _navigating = false;
   String? _error;
-  String? _info;
   String _heroTag = _defaultHeroTag;
   AuthLoaderPhase _phase = AuthLoaderPhase.charging;
 
@@ -65,17 +63,12 @@ class _VideoTransitionScreenState extends State<VideoTransitionScreen>
     final action = (args['authAction'] as String? ?? 'signIn').trim();
     final name = (args['name'] as String? ?? '').trim();
     final pin = (args['pin'] as String? ?? '').trim();
-    final email = (args['email'] as String? ?? '').trim();
     final jobToken = (args['jobToken'] as String? ?? '').trim();
-    final code = (args['code'] as String? ?? '').trim();
 
     late final AuthFlowResult result;
     switch (action) {
       case 'register':
-        result = await state.register(name, pin, email: email, jobToken: jobToken);
-        break;
-      case 'verify':
-        result = await state.verifyEmail(email, code);
+        result = await state.register(name, pin, jobToken: jobToken);
         break;
       case 'signIn':
       default:
@@ -83,29 +76,6 @@ class _VideoTransitionScreenState extends State<VideoTransitionScreen>
         break;
     }
     if (!mounted) return;
-
-    if (result.verificationRequired) {
-      final previewCode = (result.previewCode ?? '').trim();
-      final message = <String>[
-        result.message ?? 'Enter the verification code sent to your email.',
-        if (previewCode.isNotEmpty) 'Preview code: $previewCode',
-      ].join(' ');
-      setState(() {
-        _verificationRedirect = true;
-        _info = message;
-        _phase = AuthLoaderPhase.releasing;
-      });
-      await Future<void>.delayed(const Duration(milliseconds: 1500));
-      if (!mounted) return;
-      Navigator.pushReplacementNamed(context, '/', arguments: {
-        'authMode': 'verify',
-        'name': name,
-        'pin': pin,
-        'email': result.email,
-        'message': message,
-      });
-      return;
-    }
 
     if (!result.isSuccess) {
       setState(() {
@@ -250,9 +220,6 @@ class _VideoTransitionScreenState extends State<VideoTransitionScreen>
     if (_loginFailed) {
       return 'Access Denied';
     }
-    if (_verificationRedirect) {
-      return 'Verification Required';
-    }
     if (_loginDone) {
       return 'Access Granted';
     }
@@ -262,9 +229,6 @@ class _VideoTransitionScreenState extends State<VideoTransitionScreen>
   String _statusSubtitle() {
     if (_loginFailed) {
       return _error ?? 'Your credentials could not be verified.';
-    }
-    if (_verificationRedirect) {
-      return _info ?? 'Check your email for the verification code.';
     }
     if (_loginDone) {
       return 'Finalizing your workspace and unlocking the app.';

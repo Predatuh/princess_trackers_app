@@ -86,7 +86,6 @@ class ApiService {
   Future<AuthFlowResult> register(
     String name,
     String pin, {
-    required String email,
     required String jobToken,
   }) async {
     final res = await _client.post(
@@ -95,29 +94,10 @@ class ApiService {
       body: jsonEncode({
         'name': name,
         'pin': pin,
-        'email': email,
         'job_token': jobToken,
       }),
     );
     return _parseAuthResult(res, 'Failed to create account');
-  }
-
-  Future<AuthFlowResult> verifyEmail(String email, String code) async {
-    final res = await _client.post(
-      Uri.parse('$_rootUrl/api/auth/verify-email'),
-      headers: _headers,
-      body: jsonEncode({'email': email, 'code': code}),
-    );
-    return _parseAuthResult(res, 'Verification failed');
-  }
-
-  Future<AuthFlowResult> resendVerification(String email) async {
-    final res = await _client.post(
-      Uri.parse('$_rootUrl/api/auth/resend-verification'),
-      headers: _headers,
-      body: jsonEncode({'email': email}),
-    );
-    return _parseAuthResult(res, 'Could not resend verification code');
   }
 
   Future<User?> checkSession() async {
@@ -522,16 +502,14 @@ class ApiService {
   Future<AuthFlowResult> createUser(
     String name,
     String pin, {
-    required String email,
     required String jobToken,
   }) async {
-    return register(name, pin, email: email, jobToken: jobToken);
+    return register(name, pin, jobToken: jobToken);
   }
 
-  Future<AuthFlowResult> adminCreateUser(
+  Future<Map<String, dynamic>> adminCreateUser(
     String name,
     String pin, {
-    required String email,
     required String jobToken,
   }) async {
     final res = await _client.post(
@@ -540,10 +518,18 @@ class ApiService {
       body: jsonEncode({
         'name': name,
         'pin': pin,
-        'email': email,
         'job_token': jobToken,
       }),
     );
-    return _parseAuthResult(res, 'Failed to create user');
+    return _decodeJsonResponse(res, 'Create user');
+  }
+
+  Future<bool> resetUserPin(int userId, String pin) async {
+    final res = await _client.put(
+      Uri.parse('$_rootUrl/api/auth/users/$userId/pin'),
+      headers: _headers,
+      body: jsonEncode({'pin': pin}),
+    );
+    return res.statusCode == 200;
   }
 }
