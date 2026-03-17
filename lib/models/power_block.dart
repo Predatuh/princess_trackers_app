@@ -7,6 +7,7 @@ class PowerBlock {
   final List<LbdItem> lbds;
   final String? claimedBy;
   final List<String> claimedPeople;
+  final Map<String, List<int>> claimAssignments;
   final String? claimedAt;
   final String? zone;
 
@@ -19,6 +20,7 @@ class PowerBlock {
     this.lbds = const [],
     this.claimedBy,
     this.claimedPeople = const [],
+    this.claimAssignments = const {},
     this.claimedAt,
     this.zone,
   });
@@ -32,6 +34,17 @@ class PowerBlock {
         .map((e) => e.toString())
         .where((e) => e.trim().isNotEmpty)
         .toList();
+    final rawAssignments = j['claim_assignments'] as Map<String, dynamic>? ?? {};
+    final assignments = <String, List<int>>{};
+    rawAssignments.forEach((key, value) {
+      final ids = (value as List? ?? const [])
+          .map((entry) => toInt(entry))
+          .where((entry) => entry > 0)
+          .toList();
+      if (ids.isNotEmpty) {
+        assignments[key] = ids;
+      }
+    });
     return PowerBlock(
       id: toInt(j['id']),
       name: j['name'] ?? '',
@@ -41,6 +54,7 @@ class PowerBlock {
       lbds: (j['lbds'] as List? ?? []).map((e) => LbdItem.fromJson(e as Map<String, dynamic>)).toList(),
       claimedBy: j['claimed_by']?.toString(),
       claimedPeople: people,
+      claimAssignments: assignments,
       claimedAt: j['claimed_at']?.toString(),
       zone: j['zone']?.toString(),
     );
@@ -56,17 +70,21 @@ class PowerBlock {
   PowerBlock copyWith({
     String? claimedBy,
     List<String>? claimedPeople,
+    Map<String, List<int>>? claimAssignments,
     String? claimedAt,
+    Map<String, int>? lbdSummary,
+    List<LbdItem>? lbds,
   }) {
     return PowerBlock(
       id: id,
       name: name,
       powerBlockNumber: powerBlockNumber,
       lbdCount: lbdCount,
-      lbdSummary: lbdSummary,
-      lbds: lbds,
+      lbdSummary: lbdSummary ?? this.lbdSummary,
+      lbds: lbds ?? this.lbds,
       claimedBy: claimedBy,
       claimedPeople: claimedPeople ?? this.claimedPeople,
+      claimAssignments: claimAssignments ?? this.claimAssignments,
       claimedAt: claimedAt,
       zone: zone,
     );

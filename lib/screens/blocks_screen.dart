@@ -32,14 +32,19 @@ class _BlocksTabState extends State<BlocksTab> {
   }
 
   double _blockProgress(PowerBlock block) {
-    int done = 0, total = 0;
-    for (final lbd in block.lbds) {
-      for (final s in lbd.statuses) {
-        total++;
-        if (s.isCompleted) done++;
-      }
+    if (block.lbds.isEmpty) {
+      // Use lbdSummary when full lbd list not loaded
+      final termed = block.lbdSummary['term'] ?? 0;
+      return block.lbdCount > 0 ? termed / block.lbdCount : 0.0;
     }
-    return total > 0 ? done / total : 0.0;
+    int termed = 0;
+    for (final lbd in block.lbds) {
+      final isTermed = lbd.statuses
+          .where((s) => s.statusType == 'term' && s.isCompleted)
+          .isNotEmpty;
+      if (isTermed) termed++;
+    }
+    return block.lbds.isNotEmpty ? termed / block.lbds.length : 0.0;
   }
 
   List<PowerBlock> _applyFilters(List<PowerBlock> blocks) {
@@ -359,12 +364,12 @@ class _BlocksTabState extends State<BlocksTab> {
                     ),
                   )
                 : ListView.builder(
+                    cacheExtent: 1400,
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
                     itemCount: filtered.length,
-                    itemBuilder: (ctx, i) => StaggeredItem(
-                      index: i,
-                      baseDelay: const Duration(milliseconds: 40),
-                      child: _BlockCard(block: filtered[i]),
+                    itemBuilder: (ctx, i) => _BlockCard(
+                      key: ValueKey(filtered[i].id),
+                      block: filtered[i],
                     ),
                   ),
           ),
@@ -468,21 +473,16 @@ class _SortChip extends StatelessWidget {
 
 class _BlockCard extends StatelessWidget {
   final PowerBlock block;
-  const _BlockCard({required this.block});
+  const _BlockCard({super.key, required this.block});
 
   @override
   Widget build(BuildContext context) {
     final state = context.read<AppState>();
     final tracker = state.currentTracker;
 
-    int done = 0, total = 0;
-    for (final lbd in block.lbds) {
-      for (final s in lbd.statuses) {
-        total++;
-        if (s.isCompleted) done++;
-      }
-    }
-    final pct = total > 0 ? done / total : 0.0;
+    // Term-only progress
+    final termed = block.lbdSummary['term'] ?? 0;
+    final pct = block.lbdCount > 0 ? termed / block.lbdCount : 0.0;
 
     Color accentColor = C.cyan;
     if (tracker != null && block.lbdSummary.isNotEmpty) {

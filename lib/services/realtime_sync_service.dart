@@ -15,12 +15,32 @@ class RealtimeSyncService {
 
   bool get isConnected => _socket?.connected ?? false;
 
+  bool get _realtimeEnabled {
+    const explicitRealtime = bool.fromEnvironment('ENABLE_REALTIME', defaultValue: false);
+    if (explicitRealtime) {
+      return true;
+    }
+
+    final uri = Uri.tryParse(baseUrl);
+    final host = uri?.host.toLowerCase();
+    return host == 'localhost' ||
+        host == '127.0.0.1' ||
+        host == '10.0.2.2';
+  }
+
   void connect({
     required VoidCallback onBlocksChanged,
     required VoidCallback onHubChanged,
   }) {
     _onBlocksChanged = onBlocksChanged;
     _onHubChanged = onHubChanged;
+
+    if (!_realtimeEnabled) {
+      if (kDebugMode) {
+        debugPrint('RealtimeSyncService disabled for baseUrl=$baseUrl');
+      }
+      return;
+    }
 
     if (_socket != null) {
       if (!(_socket?.connected ?? false)) {
@@ -36,7 +56,7 @@ class RealtimeSyncService {
     _socket = io.io(
       rootUrl,
       io.OptionBuilder()
-          .setTransports(['polling', 'websocket'])
+          .setTransports(['polling'])
           .enableAutoConnect()
           .enableReconnection()
           .build(),

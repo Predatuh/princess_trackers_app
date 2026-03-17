@@ -52,9 +52,7 @@ class _DashboardTabState extends State<DashboardTab> {
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
         children: [
           // Welcome
-          StaggeredItem(
-            index: 0,
-            child: Column(
+          Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Welcome back,',
@@ -65,37 +63,30 @@ class _DashboardTabState extends State<DashboardTab> {
                         size: 26, weight: FontWeight.w700, color: C.text)),
               ],
             ),
-          ),
           const SizedBox(height: 20),
 
           const SizedBox(height: 8),
 
           // Tracker hub section header
-          StaggeredItem(
-            index: 3,
-            child: const SectionHeader(
+          const SectionHeader(
               title: 'Tracker Hub',
               icon: Icons.hub_rounded,
             ),
-          ),
           const SizedBox(height: 4),
 
           // Tracker cards
           for (int i = 0; i < state.trackers.length; i++) ...[
-            StaggeredItem(
-              index: 4 + i,
-              child: _TrackerHubCard(
+            _TrackerHubCard(
                 tracker: state.trackers[i],
                 blocks: state.allTrackerBlocks[state.trackers[i].id] ??
                     (state.trackers[i].id == state.currentTracker?.id
                         ? state.blocks
                         : []),
                 settings: state.allTrackerSettings[state.trackers[i].id] ?? {},
-                onTap: () {
-                  state.switchTracker(state.trackers[i]);
+                onTap: () async {
+                  await state.openTracker(state.trackers[i]);
                 },
               ),
-            ),
             const SizedBox(height: 12),
           ],
         ],
