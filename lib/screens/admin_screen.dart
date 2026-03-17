@@ -33,6 +33,7 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
 
   // Users tab
   List<dynamic> _users = [];
+  final Map<int, Map<String, dynamic>> _recentPinResets = {};
   bool _loadingUsers = false;
 
   static const _presetColors = [
@@ -104,8 +105,32 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
   Future<void> _loadUsers() async {
     setState(() => _loadingUsers = true);
     try {
-      final users = await context.read<AppState>().api.getUsers();
-      if (mounted) setState(() { _users = users; _loadingUsers = false; });
+      final api = context.read<AppState>().api;
+      final results = await Future.wait<dynamic>([
+        api.getUsers(),
+        api.getAuditLogs(limit: 250),
+      ]);
+      final users = results[0] as List<dynamic>;
+      final auditItems = results[1] as List<dynamic>;
+      final recentPinResets = <int, Map<String, dynamic>>{};
+      for (final entry in auditItems) {
+        if (entry is! Map) continue;
+        final action = entry['action']?.toString();
+        final targetId = int.tryParse(entry['target_id']?.toString() ?? '');
+        if (action != 'user.pin.reset' || targetId == null || recentPinResets.containsKey(targetId)) {
+          continue;
+        }
+        recentPinResets[targetId] = Map<String, dynamic>.from(entry.cast<String, dynamic>());
+      }
+      if (mounted) {
+        setState(() {
+          _users = users;
+          _recentPinResets
+            ..clear()
+            ..addAll(recentPinResets);
+          _loadingUsers = false;
+        });
+      }
     } catch (_) {
       if (mounted) setState(() => _loadingUsers = false);
     }
@@ -415,6 +440,26 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
       backgroundColor: C.surface,
       behavior: SnackBarBehavior.floating,
     ));
+  }
+
+  String _formatPinResetLabel(Map<String, dynamic>? entry) {
+    if (entry == null) return 'No PIN reset recorded yet';
+    final createdAtRaw = entry['created_at']?.toString();
+    final actorName = entry['actor_name']?.toString() ?? 'Admin';
+    final createdAt = createdAtRaw == null ? null : DateTime.tryParse(createdAtRaw)?.toLocal();
+    if (createdAt == null) return 'Last PIN reset by $actorName';
+    const monthNames = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final month = monthNames[createdAt.month - 1];
+    final day = createdAt.day;
+    final year = createdAt.year;
+    final minute = createdAt.minute.toString().padLeft(2, '0');
+    final hour24 = createdAt.hour;
+    final period = hour24 >= 12 ? 'PM' : 'AM';
+    final hour12 = ((hour24 + 11) % 12) + 1;
+    return 'Last PIN reset $month $day, $year at $hour12:$minute $period by $actorName';
   }
 
   Color _hexColor(String hex) {
@@ -951,6 +996,7 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
               final isMainAdmin = user['username']?.toString() == 'admin';
               final safeRole =
                   roleOptions.contains(currentRole) ? currentRole : 'user';
+              final pinResetLabel = _formatPinResetLabel(_recentPinResets[userId]);
 
               return Container(
                 margin: const EdgeInsets.only(bottom: 10),
@@ -1020,6 +1066,14 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
                       ),
                       if (!isMainAdmin) ...[
                         const SizedBox(height: 12),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            pinResetLabel,
+                            style: AppTheme.font(size: 11, color: C.textDim),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
                         Row(
                           children: [
                             Expanded(

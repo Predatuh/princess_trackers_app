@@ -489,6 +489,17 @@ class ApiService {
     return [];
   }
 
+  Future<List<dynamic>> getAuditLogs({int limit = 250}) async {
+    final res = await _client.get(
+      Uri.parse('$_rootUrl/api/admin/audit-logs?limit=$limit'),
+      headers: _headers,
+    );
+    if (res.statusCode == 200) {
+      return (jsonDecode(res.body)['data'] as List?) ?? [];
+    }
+    return [];
+  }
+
   Future<bool> updateUserRole(int userId, String role,
       {List<String> permissions = const []}) async {
     final res = await _client.put(
