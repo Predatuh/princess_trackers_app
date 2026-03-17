@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
@@ -17,6 +18,7 @@ class _IfcViewerScreenState extends State<IfcViewerScreen> {
   bool _loading = true;
   String? _error;
   Uint8List? _pdfBytes;
+  List<ui.Image> _pageImages = [];
 
   String _blockName = '';
   int? _pageNumber;
@@ -51,10 +53,8 @@ class _IfcViewerScreenState extends State<IfcViewerScreen> {
       final bytes = await api.getIfcPdf(blockId);
       if (!mounted) return;
       if (bytes != null && bytes.isNotEmpty) {
-        setState(() {
-          _pdfBytes = bytes;
-          _loading = false;
-        });
+        _pdfBytes = bytes;
+        await _rasterizePages(bytes);
       } else {
         setState(() {
           _loading = false;
@@ -68,6 +68,28 @@ class _IfcViewerScreenState extends State<IfcViewerScreen> {
         _error = 'Failed to load IFC: $e';
       });
     }
+  }
+
+  Future<void> _rasterizePages(Uint8List bytes) async {
+    final images = <ui.Image>[];
+    // Use the device pixel ratio for crisp rendering
+    final dpr = MediaQuery.of(context).devicePixelRatio;
+    await for (final page in Printing.raster(bytes, dpi: 150 * dpr)) {
+      images.add(await page.toImage());
+    }
+    if (!mounted) return;
+    setState(() {
+      _pageImages = images;
+      _loading = false;
+    });
+  }
+
+  @override
+  void dispose() {
+    for (final img in _pageImages) {
+      img.dispose();
+    }
+    super.dispose();
   }
 
   @override
@@ -141,16 +163,28 @@ class _IfcViewerScreenState extends State<IfcViewerScreen> {
         ),
       );
     }
-    if (_pdfBytes == null) {
+    if (_pageImages.isEmpty) {
       return const SizedBox.shrink();
     }
 
-    return PdfPreview(
-      build: (_) => _pdfBytes!,
-      canChangeOrientation: false,
-      canChangePageFormat: false,
-      canDebug: false,
-      pdfFileName: _filename ?? '$_blockName-IFC.pdf',
+    return InteractiveViewer(
+      minScale: 0.5,
+      maxScale: 5.0,
+      child: SingleChildScrollView(
+        child: Column(
+          children: [
+            for (final img in _pageImages)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: RawImage(
+                  image: img,
+                  fit: BoxFit.contain,
+                  width: MediaQuery.of(context).size.width,
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }

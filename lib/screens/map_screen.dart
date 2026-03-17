@@ -296,8 +296,11 @@ class _MapTabState extends State<MapTab> {
                           for (final area in visibleAreas)
                             if (_toDouble(area['bbox_x']) != null &&
                                 _toDouble(area['bbox_y']) != null &&
-                                (_toDouble(area['bbox_w']) ?? 0) <= 50 &&
-                                (_toDouble(area['bbox_h']) ?? 0) <= 50)
+                                (_toDouble(area['bbox_w']) ?? 0) > 0 &&
+                                (_toDouble(area['bbox_h']) ?? 0) > 0 &&
+                                (_toDouble(area['bbox_w']) ?? 0) <= 20 &&
+                                (_toDouble(area['bbox_h']) ?? 0) <= 20 &&
+                                ((_toDouble(area['bbox_w']) ?? 0) * (_toDouble(area['bbox_h']) ?? 0)) <= 80)
                               _buildMarker(
                                 area: area,
                                 status:
@@ -549,16 +552,9 @@ class _MapTabState extends State<MapTab> {
         },
         child: Container(
           decoration: BoxDecoration(
-            color: markerColor.withValues(alpha: 0.45),
+            color: markerColor.withValues(alpha: 0.85),
             border: Border.all(color: markerColor, width: 1.5),
             borderRadius: BorderRadius.circular(3),
-            boxShadow: [
-              BoxShadow(
-                color: markerColor.withValues(alpha: 0.3),
-                blurRadius: 6,
-                spreadRadius: -2,
-              ),
-            ],
           ),
           alignment: Alignment.center,
           child: showLabel
