@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:rive/rive.dart' as rive;
 
+import 'package:video_player/video_player.dart';
+
 import '../theme/app_theme.dart';
 
 enum AuthLoaderPhase {
@@ -32,9 +34,7 @@ class AuthLoadingSurface extends StatefulWidget {
 
 class _AuthLoadingSurfaceState extends State<AuthLoadingSurface>
     with TickerProviderStateMixin {
-  late final AnimationController _spinController;
   late final AnimationController _pulseController;
-  late final AnimationController _scanController;
   late final AnimationController _releaseController;
   late final AnimationController _failureController;
 
@@ -44,18 +44,10 @@ class _AuthLoadingSurfaceState extends State<AuthLoadingSurface>
   @override
   void initState() {
     super.initState();
-    _spinController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 4200),
-    )..repeat();
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2200),
     )..repeat(reverse: true);
-    _scanController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1800),
-    )..repeat();
     _releaseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
@@ -118,9 +110,7 @@ class _AuthLoadingSurfaceState extends State<AuthLoadingSurface>
 
   @override
   void dispose() {
-    _spinController.dispose();
     _pulseController.dispose();
-    _scanController.dispose();
     _releaseController.dispose();
     _failureController.dispose();
     super.dispose();
@@ -173,9 +163,7 @@ class _AuthLoadingSurfaceState extends State<AuthLoadingSurface>
   Widget _buildFallbackSurface() {
     return AnimatedBuilder(
       animation: Listenable.merge([
-        _spinController,
         _pulseController,
-        _scanController,
         _releaseController,
         _failureController,
       ]),
@@ -197,28 +185,12 @@ class _AuthLoadingSurfaceState extends State<AuthLoadingSurface>
           offset: Offset(shakeOffset, 0),
           child: Transform.scale(
             scale: scaleBoost,
-            child: Stack(
-              fit: StackFit.expand,
-              alignment: Alignment.center,
-              children: [
-                CustomPaint(
-                  painter: _FallbackLoaderPainter(
-                    spinValue: _spinController.value,
-                    pulseValue: _pulseController.value,
-                    releaseValue: releaseValue,
-                    failureValue: failureValue,
-                    phase: widget.phase,
-                  ),
-                ),
-                Center(
-                  child: _LogoCore(
-                    phase: widget.phase,
-                    pulseValue: _pulseController.value,
-                    scanValue: _scanController.value,
-                    releaseValue: releaseValue,
-                  ),
-                ),
-              ],
+            child: Center(
+              child: _LogoCore(
+                phase: widget.phase,
+                pulseValue: _pulseController.value,
+                releaseValue: releaseValue,
+              ),
             ),
           ),
         );
@@ -227,110 +199,95 @@ class _AuthLoadingSurfaceState extends State<AuthLoadingSurface>
   }
 }
 
-class _LogoCore extends StatelessWidget {
+class _LogoCore extends StatefulWidget {
   const _LogoCore({
     required this.phase,
     required this.pulseValue,
-    required this.scanValue,
     required this.releaseValue,
   });
 
   final AuthLoaderPhase phase;
   final double pulseValue;
-  final double scanValue;
   final double releaseValue;
 
   @override
+  State<_LogoCore> createState() => _LogoCoreState();
+}
+
+class _LogoCoreState extends State<_LogoCore> {
+  VideoPlayerController? _videoCtrl;
+  bool _videoReady = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initVideo();
+  }
+
+  Future<void> _initVideo() async {
+    final ctrl = VideoPlayerController.asset('assets/animations/loading.mp4');
+    _videoCtrl = ctrl;
+    try {
+      await ctrl.initialize();
+      await ctrl.setLooping(true);
+      await ctrl.setVolume(0);
+      await ctrl.play();
+      if (!mounted) return;
+      setState(() => _videoReady = true);
+    } catch (_) {
+      // fallback to static icon
+    }
+  }
+
+  @override
+  void dispose() {
+    _videoCtrl?.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final highlightColor = phase == AuthLoaderPhase.failed ? C.pink : C.cyan;
-    final accentColor = phase == AuthLoaderPhase.failed ? C.pink : C.gold;
-    final coreSize = 220.0 + (releaseValue * 12);
+    final coreSize = 220.0 + (widget.releaseValue * 12);
 
     return SizedBox(
       width: coreSize,
       height: coreSize,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: RadialGradient(
-            center: const Alignment(-0.16, -0.22),
-            radius: 0.88,
-            colors: [
-              Colors.white.withValues(alpha: 0.12),
-              const Color(0xFF111B2C),
-              const Color(0xFF060A12),
-            ],
-          ),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.10),
-            width: 1.2,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: highlightColor.withValues(alpha: 0.22 + (pulseValue * 0.12)),
-              blurRadius: 28,
-              spreadRadius: -10,
-            ),
-            BoxShadow(
-              color: accentColor.withValues(alpha: 0.16 + (releaseValue * 0.18)),
-              blurRadius: 42,
-              spreadRadius: -16,
-            ),
-          ],
-        ),
-        child: ClipOval(
+      child: ClipOval(
+        child: Container(
+          color: const Color(0xFF060A12),
           child: Stack(
             fit: StackFit.expand,
             alignment: Alignment.center,
             children: [
-              Positioned.fill(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        highlightColor.withValues(alpha: 0.05),
-                        Colors.transparent,
-                        accentColor.withValues(alpha: 0.03),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
+              // Static icon (visible until video is ready)
               Padding(
                 padding: const EdgeInsets.all(38),
-                child: Transform.scale(
-                  scale: 0.985 + (pulseValue * 0.02),
+                child: AnimatedOpacity(
+                  opacity: _videoReady ? 0.0 : 1.0,
+                  duration: const Duration(milliseconds: 350),
                   child: Image.asset(
-                    'assets/logo.png',
+                    'assets/icon/icon.png',
                     fit: BoxFit.contain,
                     filterQuality: FilterQuality.high,
                   ),
                 ),
               ),
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: Align(
-                    alignment: Alignment(0, (scanValue * 1.8) - 0.9),
-                    child: Container(
-                      height: 20,
-                      margin: const EdgeInsets.symmetric(horizontal: 28),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Colors.transparent,
-                            highlightColor.withValues(alpha: 0.07),
-                            highlightColor.withValues(alpha: 0.32),
-                            highlightColor.withValues(alpha: 0.07),
-                            Colors.transparent,
-                          ],
-                        ),
+              // Loading video (fades in seamlessly)
+              if (_videoCtrl != null && _videoCtrl!.value.isInitialized)
+                Positioned.fill(
+                  child: AnimatedOpacity(
+                    opacity: _videoReady ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 350),
+                    child: FittedBox(
+                      fit: BoxFit.cover,
+                      child: SizedBox(
+                        width: _videoCtrl!.value.size.width,
+                        height: _videoCtrl!.value.size.height,
+                        child: VideoPlayer(_videoCtrl!),
                       ),
                     ),
                   ),
                 ),
-              ),
             ],
           ),
         ),
@@ -339,211 +296,4 @@ class _LogoCore extends StatelessWidget {
   }
 }
 
-class _FallbackLoaderPainter extends CustomPainter {
-  const _FallbackLoaderPainter({
-    required this.spinValue,
-    required this.pulseValue,
-    required this.releaseValue,
-    required this.failureValue,
-    required this.phase,
-  });
-
-  final double spinValue;
-  final double pulseValue;
-  final double releaseValue;
-  final double failureValue;
-  final AuthLoaderPhase phase;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = size.center(Offset.zero);
-    final baseRadius = math.min(size.width, size.height) * 0.28;
-    final highlightColor = phase == AuthLoaderPhase.failed ? C.pink : C.cyan;
-    final accentColor = phase == AuthLoaderPhase.failed ? C.pink : C.gold;
-
-    _paintBackdropGlow(canvas, center, baseRadius, highlightColor, accentColor);
-    _paintStaticRings(canvas, center, baseRadius, highlightColor, accentColor);
-    _paintActiveSweep(canvas, center, baseRadius, highlightColor, accentColor);
-    _paintOrbitDots(canvas, center, baseRadius, highlightColor, accentColor);
-
-    if (phase == AuthLoaderPhase.releasing) {
-      _paintRelease(canvas, center, baseRadius, highlightColor, accentColor);
-    }
-
-    if (phase == AuthLoaderPhase.failed) {
-      _paintFailure(canvas, center, baseRadius);
-    }
-  }
-
-  void _paintBackdropGlow(
-    Canvas canvas,
-    Offset center,
-    double radius,
-    Color highlightColor,
-    Color accentColor,
-  ) {
-    final ambientPaint = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          highlightColor.withValues(alpha: 0.14 + (pulseValue * 0.06)),
-          accentColor.withValues(alpha: 0.08),
-          Colors.transparent,
-        ],
-        stops: const [0.0, 0.42, 1.0],
-      ).createShader(
-        Rect.fromCircle(center: center, radius: radius * 2.3),
-      );
-    canvas.drawCircle(center, radius * 2.3, ambientPaint);
-  }
-
-  void _paintStaticRings(
-    Canvas canvas,
-    Offset center,
-    double radius,
-    Color highlightColor,
-    Color accentColor,
-  ) {
-    final ringPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2
-      ..color = Colors.white.withValues(alpha: 0.08);
-    canvas.drawCircle(center, radius * 1.34, ringPaint);
-    canvas.drawCircle(center, radius * 1.10, ringPaint);
-
-    final accentRing = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12)
-      ..color = highlightColor.withValues(alpha: 0.12 + (pulseValue * 0.08));
-    canvas.drawCircle(center, radius * 1.22, accentRing);
-
-    final trimRect = Rect.fromCircle(center: center, radius: radius * 1.34);
-    final trimPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = 2.6
-      ..color = accentColor.withValues(alpha: 0.56);
-    canvas.drawArc(
-      trimRect,
-      -math.pi / 2,
-      math.pi * 0.24,
-      false,
-      trimPaint,
-    );
-    canvas.drawArc(
-      trimRect,
-      math.pi * 0.72,
-      math.pi * 0.16,
-      false,
-      trimPaint,
-    );
-  }
-
-  void _paintActiveSweep(
-    Canvas canvas,
-    Offset center,
-    double radius,
-    Color highlightColor,
-    Color accentColor,
-  ) {
-    final orbitRect = Rect.fromCircle(center: center, radius: radius * 1.22);
-    final sweepPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = 8
-      ..shader = SweepGradient(
-        startAngle: -math.pi / 2,
-        endAngle: math.pi * 1.5,
-        colors: [
-          Colors.transparent,
-          highlightColor.withValues(alpha: 0.10),
-          highlightColor,
-          accentColor,
-          Colors.transparent,
-        ],
-        stops: const [0.0, 0.36, 0.62, 0.82, 1.0],
-        transform: GradientRotation(spinValue * math.pi * 2),
-      ).createShader(orbitRect);
-
-    final sweep = phase == AuthLoaderPhase.releasing
-        ? math.pi * (0.9 + (releaseValue * 0.5))
-        : math.pi * (0.42 + (pulseValue * 0.08));
-    canvas.drawArc(
-      orbitRect,
-      -math.pi / 2 + (spinValue * math.pi * 2),
-      sweep,
-      false,
-      sweepPaint,
-    );
-  }
-
-  void _paintOrbitDots(
-    Canvas canvas,
-    Offset center,
-    double radius,
-    Color highlightColor,
-    Color accentColor,
-  ) {
-    final orbitRadius = radius * 1.46;
-    final dotPaint = Paint()
-      ..style = PaintingStyle.fill
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-
-    for (var index = 0; index < 4; index++) {
-      final progress = (spinValue + (index * 0.17)) % 1.0;
-      final angle = (progress * math.pi * 2) - (math.pi / 2);
-      final distance = orbitRadius + (math.sin((progress + pulseValue) * math.pi * 2) * 6);
-      final dotCenter = Offset(
-        center.dx + math.cos(angle) * distance,
-        center.dy + math.sin(angle) * distance,
-      );
-
-      dotPaint.color = index.isEven
-          ? highlightColor.withValues(alpha: 0.72)
-          : accentColor.withValues(alpha: 0.68);
-      canvas.drawCircle(dotCenter, index.isEven ? 4.6 : 3.4, dotPaint);
-    }
-  }
-
-  void _paintRelease(
-    Canvas canvas,
-    Offset center,
-    double radius,
-    Color highlightColor,
-    Color accentColor,
-  ) {
-    for (var index = 0; index < 3; index++) {
-      final progress = ((releaseValue - (index * 0.1)) / 0.9).clamp(0.0, 1.0);
-      if (progress <= 0) {
-        continue;
-      }
-
-      final ringPaint = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3.5 - index
-        ..color = (index.isEven ? highlightColor : accentColor).withValues(
-          alpha: (1 - progress) * 0.34,
-        );
-      canvas.drawCircle(center, radius * (1.1 + (progress * 1.1)), ringPaint);
-    }
-  }
-
-  void _paintFailure(Canvas canvas, Offset center, double radius) {
-    final warningPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3.5
-      ..strokeCap = StrokeCap.round
-      ..color = C.pink.withValues(alpha: 0.42 * (1 - failureValue));
-    final warningRadius = radius * (1.5 + (failureValue * 0.15));
-    canvas.drawCircle(center, warningRadius, warningPaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _FallbackLoaderPainter oldDelegate) {
-    return oldDelegate.spinValue != spinValue ||
-        oldDelegate.pulseValue != pulseValue ||
-        oldDelegate.releaseValue != releaseValue ||
-        oldDelegate.failureValue != failureValue ||
-        oldDelegate.phase != phase;
-  }
-}
+// Old _FallbackLoaderPainter removed — video replaces it.

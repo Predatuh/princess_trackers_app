@@ -244,7 +244,7 @@ class _LoginScreenState extends State<LoginScreen>
                         height: 296,
                         alignment: Alignment.center,
                         child: Image.asset(
-                          'assets/logo.png',
+                          'assets/icon/icon.png',
                           width: 296,
                           height: 296,
                           fit: BoxFit.contain,

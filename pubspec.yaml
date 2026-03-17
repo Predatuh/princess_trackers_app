@@ -75,6 +75,7 @@ flutter:
   assets:
     - assets/logo.png
     - assets/crown.png
+    - assets/icon/
     - assets/animations/
 
   # An image asset can refer to one or more resolution-specific "variants", see
@@ -104,9 +105,8 @@ flutter:
   # see https://flutter.dev/to/font-from-package
 
 flutter_launcher_icons:
-  android: true
-  ios: false
-  image_path: assets/logo.png
-  adaptive_icon_background: '#08131E'
-  adaptive_icon_foreground: assets/logo.png
-  min_sdk_android: 21
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/icon/icon.png"
+  adaptive_icon_background: "#000000"
+  adaptive_icon_foreground: "assets/icon/icon.png"
