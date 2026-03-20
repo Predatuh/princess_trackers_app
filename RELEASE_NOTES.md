@@ -6,7 +6,7 @@ This update switches the mobile app to the new production domain and restores li
 
 ### Fixes
 
-- Updated the app's default API host to `https://www.princesstrackers.com`.
+- Updated the app's default API host to https://princesstrackers.com.
 - Enabled realtime sync automatically for the live Princess Trackers domains.
 - Bumped the mobile app version for rollout tracking.
 
