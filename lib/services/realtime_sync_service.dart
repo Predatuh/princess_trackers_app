@@ -25,7 +25,9 @@ class RealtimeSyncService {
     final host = uri?.host.toLowerCase();
     return host == 'localhost' ||
         host == '127.0.0.1' ||
-        host == '10.0.2.2';
+        host == '10.0.2.2' ||
+        host == 'princesstrackers.com' ||
+        host == 'www.princesstrackers.com';
   }
 
   void connect({

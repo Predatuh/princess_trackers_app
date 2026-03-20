@@ -9,7 +9,7 @@ import 'http_client.dart';
 class ApiService {
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'https://www.princesscoded.net',
+    defaultValue: 'https://www.princesstrackers.com',
   );
   late final http.Client _client;
   User? currentUser;

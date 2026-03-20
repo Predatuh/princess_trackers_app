@@ -1,5 +1,15 @@
 # Princess Trackers Release Notes
 
+## Version 1.0.2
+
+This update switches the mobile app to the new production domain and restores live connectivity against the current Tracker deployment.
+
+### Fixes
+
+- Updated the app's default API host to `https://www.princesstrackers.com`.
+- Enabled realtime sync automatically for the live Princess Trackers domains.
+- Bumped the mobile app version for rollout tracking.
+
 ## Version 1.0.0
 
 Princess Trackers is now ready for broader release with a stronger focus on live coordination, offline reliability, and cleaner field workflows.
