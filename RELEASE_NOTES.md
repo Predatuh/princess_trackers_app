@@ -1,5 +1,15 @@
 # Princess Trackers Release Notes
 
+## Version 1.0.3
+
+This hotfix restores mobile connectivity by falling back to the live Railway hostname while the new custom domain is repaired.
+
+### Fixes
+
+- Switched the app's default API host back to the live Railway service hostname.
+- Enabled realtime sync automatically for the live Railway service hostname.
+- Bumped the mobile app version for the connectivity hotfix.
+
 ## Version 1.0.2
 
 This update switches the mobile app to the new production domain and restores live connectivity against the current Tracker deployment.

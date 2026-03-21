@@ -26,6 +26,7 @@ class RealtimeSyncService {
     return host == 'localhost' ||
         host == '127.0.0.1' ||
         host == '10.0.2.2' ||
+      host == 'tracker-production-74add.up.railway.app' ||
         host == 'princesstrackers.com' ||
         host == 'www.princesstrackers.com';
   }
