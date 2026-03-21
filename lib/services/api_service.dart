@@ -439,6 +439,59 @@ class ApiService {
     return null;
   }
 
+  Future<List<ReviewEntry>> getReviews({required String date, int? trackerId}) async {
+    final suffix = trackerId != null ? '&tracker_id=$trackerId' : '';
+    final res = await _get('/api/reviews?date=$date$suffix');
+    final j = _decodeJsonResponse(res, 'Load reviews');
+    return (j['data'] as List).map((entry) => ReviewEntry.fromJson(entry)).toList();
+  }
+
+  Future<ReviewEntry?> submitReview({
+    required int powerBlockId,
+    required String reviewResult,
+    required String reviewDate,
+    String? notes,
+    int? trackerId,
+  }) async {
+    final body = <String, dynamic>{
+      'power_block_id': powerBlockId,
+      'review_result': reviewResult,
+      'review_date': reviewDate,
+      'notes': notes ?? '',
+    };
+    if (trackerId != null) body['tracker_id'] = trackerId;
+    final res = await _post('/api/reviews', body: jsonEncode(body));
+    if (res.statusCode == 201) {
+      return ReviewEntry.fromJson(_decodeJsonResponse(res, 'Submit review')['data']);
+    }
+    return null;
+  }
+
+  Future<List<ReviewReport>> getReviewReports({int? trackerId}) async {
+    final suffix = trackerId != null ? '?tracker_id=$trackerId' : '';
+    final res = await _get('/api/review-reports$suffix');
+    final j = _decodeJsonResponse(res, 'Load review reports');
+    return (j['data'] as List).map((report) => ReviewReport.fromJson(report)).toList();
+  }
+
+  Future<Map<String, dynamic>?> getReviewReportByDate(String date, {int? trackerId}) async {
+    final suffix = trackerId != null ? '?tracker_id=$trackerId' : '';
+    final res = await _get('/api/review-reports/date/$date$suffix');
+    final j = _decodeJsonResponse(res, 'Load review report detail');
+    return j['data'] as Map<String, dynamic>?;
+  }
+
+  Future<ReviewReport?> generateReviewReport({String? date, int? trackerId}) async {
+    final body = <String, dynamic>{};
+    if (date != null) body['date'] = date;
+    if (trackerId != null) body['tracker_id'] = trackerId;
+    final res = await _post('/api/review-reports/generate', body: jsonEncode(body));
+    if (res.statusCode == 200) {
+      return ReviewReport.fromJson(_decodeJsonResponse(res, 'Generate review report')['data']);
+    }
+    return null;
+  }
+
   // ── Admin ────────────────────────────────────────────
 
   Future<bool> saveSettings(Map<String, dynamic> data) async {

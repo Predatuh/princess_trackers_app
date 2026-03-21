@@ -102,7 +102,6 @@ class DailyReport {
   final int id;
   final String reportDate;
   final Map<String, dynamic> data;
-  final int fixEntryCount;
   final int claimScanCount;
   final String? latestClaimScanImageUrl;
   final String? latestClaimScanPowerBlock;
@@ -111,7 +110,6 @@ class DailyReport {
     required this.id,
     required this.reportDate,
     this.data = const {},
-    this.fixEntryCount = 0,
     this.claimScanCount = 0,
     this.latestClaimScanImageUrl,
     this.latestClaimScanPowerBlock,
@@ -121,10 +119,78 @@ class DailyReport {
         id: j['id'],
         reportDate: j['report_date'] ?? '',
         data: j['data'] ?? {},
-        fixEntryCount: j['fix_entry_count'] ?? 0,
         claimScanCount: j['claim_scan_count'] ?? 0,
         latestClaimScanImageUrl: j['latest_claim_scan_image_url']?.toString(),
         latestClaimScanPowerBlock: j['latest_claim_scan_power_block']?.toString(),
+      );
+}
+
+class ReviewEntry {
+  final int id;
+  final int powerBlockId;
+  final String powerBlockName;
+  final String reviewResult;
+  final String reviewDate;
+  final String reviewedBy;
+  final String notes;
+  final String createdAt;
+
+  ReviewEntry({
+    required this.id,
+    required this.powerBlockId,
+    required this.powerBlockName,
+    required this.reviewResult,
+    required this.reviewDate,
+    required this.reviewedBy,
+    this.notes = '',
+    this.createdAt = '',
+  });
+
+  factory ReviewEntry.fromJson(Map<String, dynamic> j) => ReviewEntry(
+        id: j['id'] ?? 0,
+        powerBlockId: j['power_block_id'] ?? 0,
+        powerBlockName: j['power_block_name']?.toString() ?? '',
+        reviewResult: j['review_result']?.toString() ?? 'fail',
+        reviewDate: j['review_date']?.toString() ?? '',
+        reviewedBy: j['reviewed_by']?.toString() ?? '',
+        notes: j['notes']?.toString() ?? '',
+        createdAt: j['created_at']?.toString() ?? '',
+      );
+}
+
+class ReviewReport {
+  final int id;
+  final String reportDate;
+  final Map<String, dynamic> data;
+  final int totalReviews;
+  final int passCount;
+  final int failCount;
+  final List<String> reviewers;
+  final List<Map<String, dynamic>> failedBlocks;
+
+  ReviewReport({
+    required this.id,
+    required this.reportDate,
+    this.data = const {},
+    this.totalReviews = 0,
+    this.passCount = 0,
+    this.failCount = 0,
+    this.reviewers = const [],
+    this.failedBlocks = const [],
+  });
+
+  factory ReviewReport.fromJson(Map<String, dynamic> j) => ReviewReport(
+        id: j['id'] ?? 0,
+        reportDate: j['report_date']?.toString() ?? '',
+        data: Map<String, dynamic>.from(j['data'] ?? const {}),
+        totalReviews: j['total_reviews'] ?? 0,
+        passCount: j['pass_count'] ?? 0,
+        failCount: j['fail_count'] ?? 0,
+        reviewers: List<String>.from(j['reviewers'] ?? const []),
+        failedBlocks: (j['failed_blocks'] as List? ?? const [])
+            .whereType<Map>()
+            .map((entry) => Map<String, dynamic>.from(entry))
+            .toList(),
       );
 }
 

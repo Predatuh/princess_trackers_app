@@ -9,6 +9,7 @@ import 'blocks_screen.dart';
 import 'map_screen.dart';
 import 'worklog_screen.dart';
 import 'reports_screen.dart';
+import 'review_screen.dart';
 import 'admin_screen.dart';
 
 class MainShell extends StatefulWidget {
@@ -20,18 +21,20 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell>
     {
-  final _tabs = const [
-    DashboardTab(),
-    BlocksTab(),
-    MapTab(),
-    WorkLogTab(),
-    ReportsTab(),
-    AdminTab(),
-  ];
-
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
+    final showAdmin = state.user?.canAccessAdmin ?? false;
+    final tabs = <Widget>[
+      const DashboardTab(),
+      const BlocksTab(),
+      const MapTab(),
+      const WorkLogTab(),
+      const ReportsTab(),
+      if (showAdmin) const ReviewTab(),
+      if (showAdmin) const AdminTab(),
+    ];
+    final currentIndex = state.selectedTab.clamp(0, tabs.length - 1);
 
     return Scaffold(
       backgroundColor: C.bg,
@@ -46,16 +49,16 @@ class _MainShellState extends State<MainShell>
             ),
           Expanded(
             child: IndexedStack(
-              index: state.selectedTab,
-              children: _tabs,
+              index: currentIndex,
+              children: tabs,
             ),
           ),
         ],
       ),
       bottomNavigationBar: FuturisticNavBar(
-        currentIndex: state.selectedTab,
+        currentIndex: currentIndex,
         onTap: state.setSelectedTab,
-        showAdmin: state.user?.canAccessAdmin ?? false,
+        showAdmin: showAdmin,
       ),
     );
   }

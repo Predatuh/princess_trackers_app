@@ -3,12 +3,12 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
-import '../services/app_state.dart';
+
 import '../models/app_models.dart';
+import '../services/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 
-/// Reports tab — shown inside MainShell
 class ReportsTab extends StatefulWidget {
   const ReportsTab({super.key});
 
@@ -19,28 +19,26 @@ class ReportsTab extends StatefulWidget {
 class _ReportsTabState extends State<ReportsTab> {
   List<DailyReport> _reports = [];
   bool _loading = true;
-  bool _fixOnly = false;
 
-  List<DailyReport> get _visibleReports => _fixOnly
-      ? _reports.where((report) => report.fixEntryCount > 0).toList()
-      : _reports;
-
-  List<Map<String, dynamic>> _fixEntries(Map<String, dynamic> payload) {
-    return (payload['raw_entries'] as List? ?? const [])
-        .whereType<Map>()
-        .map((entry) => Map<String, dynamic>.from(entry))
-        .where((entry) => entry['task_type']?.toString() == 'fix')
-        .toList();
+  @override
+  void initState() {
+    super.initState();
+    _load();
   }
 
-  Map<String, List<String>> _groupFixEntriesByWorker(List<Map<String, dynamic>> entries) {
-    final grouped = <String, List<String>>{};
-    for (final entry in entries) {
-      final worker = entry['worker_name']?.toString() ?? 'Unknown';
-      final block = entry['power_block_name']?.toString() ?? 'Unknown';
-      grouped.putIfAbsent(worker, () => <String>[]).add(block);
-    }
-    return grouped;
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    final state = context.read<AppState>();
+    final trackerId = state.currentTracker?.id;
+    _reports = await state.api.getReports(trackerId ?? 0);
+    if (!mounted) return;
+    setState(() => _loading = false);
+  }
+
+  Future<void> _generateToday() async {
+    final state = context.read<AppState>();
+    await state.api.generateReport(trackerId: state.currentTracker?.id);
+    await _load();
   }
 
   Widget _buildClaimScanPreview({
@@ -63,13 +61,9 @@ class _ReportsTabState extends State<ReportsTab> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.image_not_supported_outlined,
-                  color: C.textDim, size: 22),
+              Icon(Icons.image_not_supported_outlined, color: C.textDim, size: 22),
               const SizedBox(height: 6),
-              Text(
-                'Image unavailable',
-                style: AppTheme.font(size: 11, color: C.textDim),
-              ),
+              Text('Image unavailable', style: AppTheme.font(size: 11, color: C.textDim)),
             ],
           ),
         );
@@ -260,284 +254,6 @@ class _ReportsTabState extends State<ReportsTab> {
     );
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    setState(() => _loading = true);
-    final state = context.read<AppState>();
-    final tid = state.currentTracker?.id ?? 0;
-    _reports = await state.api.getReports(tid);
-    setState(() => _loading = false);
-  }
-
-  Future<void> _generateToday() async {
-    final state = context.read<AppState>();
-    await state.api.generateReport(trackerId: state.currentTracker?.id);
-    await _load();
-  }
-
-  Future<void> _generateFixReport() async {
-    final state = context.read<AppState>();
-    await state.api.generateReport(trackerId: state.currentTracker?.id);
-    if (!mounted) return;
-    await _load();
-    if (!mounted) return;
-    setState(() => _fixOnly = true);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final state = context.watch<AppState>();
-    return Column(
-      children: [
-        // Generate report actions
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-          child: Row(
-            children: [
-              Expanded(
-                child: GestureDetector(
-                  onTap: _generateToday,
-                  child: GlassCard(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 14),
-                    borderRadius: 14,
-                    glowColor: C.green,
-                    glowBlur: 10,
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: C.green.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Icon(Icons.add_chart_rounded,
-                              color: C.green, size: 20),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Generate Report',
-                                  style: AppTheme.font(
-                                      size: 15, weight: FontWeight.w700)),
-                              Text("Create today's status report",
-                                  style: AppTheme.font(
-                                      size: 12, color: C.textSub)),
-                            ],
-                          ),
-                        ),
-                        Icon(Icons.arrow_forward_rounded,
-                            color: C.green.withValues(alpha: 0.6), size: 20),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: GestureDetector(
-                  onTap: _generateFixReport,
-                  child: GlassCard(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 14),
-                    borderRadius: 14,
-                    glowColor: C.gold,
-                    glowBlur: 10,
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: C.gold.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Icon(Icons.build_circle_outlined,
-                              color: C.gold, size: 20),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Generate Fix Report',
-                                  style: AppTheme.font(
-                                      size: 15, weight: FontWeight.w700)),
-                              Text('Generate and jump to fix activity',
-                                  style: AppTheme.font(
-                                      size: 12, color: C.textSub)),
-                            ],
-                          ),
-                        ),
-                        Icon(Icons.arrow_forward_rounded,
-                            color: C.gold.withValues(alpha: 0.7), size: 20),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          child: Row(
-            children: [
-              ChoiceChip(
-                label: const Text('All Reports'),
-                selected: !_fixOnly,
-                onSelected: (_) => setState(() => _fixOnly = false),
-              ),
-              const SizedBox(width: 8),
-              ChoiceChip(
-                label: const Text('Fix Reports'),
-                selected: _fixOnly,
-                onSelected: (_) => setState(() => _fixOnly = true),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-
-        // Report list
-        Expanded(
-          child: _loading
-              ? const Center(
-                  child: CircularProgressIndicator(
-                      color: C.cyan, strokeWidth: 2))
-              : _visibleReports.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.insights_rounded,
-                              color: C.textDim, size: 48),
-                          const SizedBox(height: 12),
-                          Text(_fixOnly ? 'No fix reports yet' : 'No reports yet',
-                              style: AppTheme.font(color: C.textDim)),
-                        ],
-                      ),
-                    )
-                  : RefreshIndicator(
-                      color: C.cyan,
-                      backgroundColor: C.surface,
-                      onRefresh: _load,
-                      child: ListView.builder(
-                        padding:
-                            const EdgeInsets.fromLTRB(16, 0, 16, 100),
-                        itemCount: _visibleReports.length,
-                        itemBuilder: (ctx, i) {
-                          final r = _visibleReports[i];
-                          final previewUrl = state.api.resolveMediaUrl(r.latestClaimScanImageUrl);
-                          return GestureDetector(
-                              onTap: () => _showDetail(r.id),
-                              child: Container(
-                                margin:
-                                const EdgeInsets.only(bottom: 12),
-                                padding: const EdgeInsets.all(16),
-                              decoration: AppTheme.glassDecoration(radius: 16),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      padding:
-                                          const EdgeInsets.all(10),
-                                      decoration: BoxDecoration(
-                                        color: C.cyan.withValues(
-                                            alpha: 0.12),
-                                        borderRadius:
-                                            BorderRadius.circular(
-                                                12),
-                                      ),
-                                      child: const Icon(
-                                          Icons
-                                              .description_rounded,
-                                          color: C.cyan,
-                                          size: 20),
-                                    ),
-                                    const SizedBox(width: 14),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment
-                                                .start,
-                                        children: [
-                                          Text(r.reportDate,
-                                              style: AppTheme.font(
-                                            size: 16,
-                                            weight: FontWeight
-                                              .w700)),
-                                        const SizedBox(height: 2),
-                                        Text('${r.data['total_entries'] ?? 0} updates captured for the day',
-                                              style: AppTheme.font(
-                                                  size: 12,
-                                                  color:
-                                                      C.textSub)),
-                                          const SizedBox(height: 6),
-                                          Text('${r.fixEntryCount} fix${r.fixEntryCount == 1 ? '' : 'es'} logged',
-                                            style: AppTheme.font(size: 11, color: C.gold)),
-                                          if (r.claimScanCount > 0) ...[
-                                            const SizedBox(height: 8),
-                                            Wrap(
-                                              spacing: 8,
-                                              runSpacing: 8,
-                                              children: [
-                                                Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                                  decoration: BoxDecoration(
-                                                    color: C.cyan.withValues(alpha: 0.12),
-                                                    borderRadius: BorderRadius.circular(999),
-                                                    border: Border.all(color: C.cyan.withValues(alpha: 0.25)),
-                                                  ),
-                                                  child: Text(
-                                                    '${r.claimScanCount} claim scan${r.claimScanCount == 1 ? '' : 's'}',
-                                                    style: AppTheme.font(size: 11, weight: FontWeight.w700, color: C.cyan),
-                                                  ),
-                                                ),
-                                                if ((r.latestClaimScanPowerBlock ?? '').isNotEmpty)
-                                                  Text(
-                                                    r.latestClaimScanPowerBlock!,
-                                                    style: AppTheme.font(size: 11, color: C.textSub),
-                                                  ),
-                                              ],
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ),
-                                    if (previewUrl != null) ...[
-                                      const SizedBox(width: 12),
-                                      ClipRRect(
-                                        borderRadius: BorderRadius.circular(12),
-                                        child: _buildClaimScanPreview(
-                                          imageUrl: previewUrl,
-                                          width: 56,
-                                          height: 56,
-                                        ),
-                                      ),
-                                    ],
-                                    Icon(
-                                        Icons
-                                            .chevron_right_rounded,
-                                        color: C.textDim,
-                                        size: 20),
-                                  ],
-                                ),
-                              ),
-                          );
-                        },
-                      ),
-                    ),
-        ),
-      ],
-    );
-  }
-
   void _showDetail(int id) async {
     final state = context.read<AppState>();
     final detail = await state.api.getReportDetail(id);
@@ -555,24 +271,17 @@ class _ReportsTabState extends State<ReportsTab> {
           detail['data'] is Map<String, dynamic> ? detail['data'] : detail,
         );
         final totalEntries = payload['total_entries'] ?? detail['total_entries'] ?? 0;
-        final workerNames =
-          (payload['worker_names'] as List?)?.cast<String>() ?? [];
-        final byTask =
-          Map<String, dynamic>.from(payload['by_task'] ?? {});
-        final byWorker =
-          Map<String, dynamic>.from(payload['by_worker'] ?? {});
-        final byPowerBlock =
-          Map<String, dynamic>.from(payload['by_power_block'] ?? {});
+        final workerNames = (payload['worker_names'] as List?)?.cast<String>() ?? [];
+        final byWorker = Map<String, dynamic>.from(payload['by_worker'] ?? {});
+        final byPowerBlock = Map<String, dynamic>.from(payload['by_power_block'] ?? {});
         final rawEntries = (payload['raw_entries'] as List? ?? const [])
-          .whereType<Map>()
-          .map((entry) => Map<String, dynamic>.from(entry))
-          .toList();
+            .whereType<Map>()
+            .map((entry) => Map<String, dynamic>.from(entry))
+            .toList();
         final claimScans = (payload['claim_scans'] as List? ?? const [])
-          .whereType<Map>()
-          .map((entry) => Map<String, dynamic>.from(entry))
-          .toList();
-        final fixEntries = _fixEntries(payload);
-        final fixByWorker = _groupFixEntriesByWorker(fixEntries);
+            .whereType<Map>()
+            .map((entry) => Map<String, dynamic>.from(entry))
+            .toList();
 
         return DraggableScrollableSheet(
           expand: false,
@@ -594,69 +303,14 @@ class _ReportsTabState extends State<ReportsTab> {
                     ),
                   ),
                 ),
-                Text(
-                  'Report: ${detail['report_date'] ?? payload['report_date'] ?? ''}',
-                  style:
-                      AppTheme.font(size: 20, weight: FontWeight.w700),
-                ),
+                Text('Report: ${detail['report_date'] ?? payload['report_date'] ?? ''}',
+                    style: AppTheme.font(size: 20, weight: FontWeight.w700)),
                 const SizedBox(height: 6),
                 Text(
-                  '$totalEntries entries · ${workerNames.length} workers · ${fixEntries.length} fixes',
+                  '$totalEntries entries · ${workerNames.length} workers · ${claimScans.length} claim scans',
                   style: AppTheme.font(size: 13, color: C.textSub),
                 ),
                 const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: GlassCard(
-                        padding: const EdgeInsets.all(14),
-                        glowColor: C.cyan,
-                        glowBlur: 16,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Total Entries', style: AppTheme.font(size: 11, color: C.textSub)),
-                            const SizedBox(height: 4),
-                            Text('$totalEntries', style: AppTheme.displayFont(size: 20, color: C.cyan)),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: GlassCard(
-                        padding: const EdgeInsets.all(14),
-                        glowColor: C.green,
-                        glowBlur: 16,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Workers', style: AppTheme.font(size: 11, color: C.textSub)),
-                            const SizedBox(height: 4),
-                            Text('${workerNames.length}', style: AppTheme.displayFont(size: 20, color: C.green)),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: GlassCard(
-                        padding: const EdgeInsets.all(14),
-                        glowColor: C.gold,
-                        glowBlur: 16,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Fixes', style: AppTheme.font(size: 11, color: C.textSub)),
-                            const SizedBox(height: 4),
-                            Text('${fixEntries.length}', style: AppTheme.displayFont(size: 20, color: C.gold)),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
@@ -669,84 +323,8 @@ class _ReportsTabState extends State<ReportsTab> {
                   ),
                 ),
                 const SizedBox(height: 20),
-
-                if (fixEntries.isNotEmpty) ...[
-                  const SectionHeader(
-                      title: 'Fix Activity',
-                      icon: Icons.build_circle_rounded,
-                      color: C.gold),
-                  GlassCard(
-                    padding: const EdgeInsets.all(16),
-                    glowColor: C.gold,
-                    glowBlur: 14,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: fixByWorker.entries
-                          .map((entry) => Padding(
-                                padding: const EdgeInsets.only(bottom: 8),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    SizedBox(
-                                      width: 120,
-                                      child: Text(entry.key,
-                                          style: AppTheme.font(size: 12, weight: FontWeight.w700, color: C.gold)),
-                                    ),
-                                    Expanded(
-                                      child: Text(
-                                        entry.value.toSet().join(', '),
-                                        style: AppTheme.font(size: 12, color: C.textSub),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ))
-                          .toList(),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-
-                // By Task
-                if (byTask.isNotEmpty) ...[
-                  const SectionHeader(
-                      title: 'By Task',
-                      icon: Icons.task_alt_rounded),
-                  GlassCard(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: byTask.entries
-                          .map((e) => Padding(
-                                padding:
-                                    const EdgeInsets.only(bottom: 8),
-                                child: Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment
-                                          .spaceBetween,
-                                  children: [
-                                    Text(e.key,
-                                        style: AppTheme.font(
-                                            size: 14,
-                                            color: C.textSub)),
-                                    Text('${e.value}',
-                                        style:
-                                            AppTheme.displayFont(
-                                                size: 14,
-                                                color: C.cyan)),
-                                  ],
-                                ),
-                              ))
-                          .toList(),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-
                 if (byPowerBlock.isNotEmpty) ...[
-                  const SectionHeader(
-                      title: 'By Power Block',
-                      icon: Icons.grid_view_rounded,
-                      color: C.gold),
+                  const SectionHeader(title: 'By Power Block', icon: Icons.grid_view_rounded, color: C.gold),
                   ...byPowerBlock.entries.map((entry) {
                     final taskMap = Map<String, dynamic>.from(entry.value as Map);
                     return Padding(
@@ -758,8 +336,7 @@ class _ReportsTabState extends State<ReportsTab> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(entry.key,
-                                style: AppTheme.font(size: 15, weight: FontWeight.w700)),
+                            Text(entry.key, style: AppTheme.font(size: 15, weight: FontWeight.w700)),
                             const SizedBox(height: 8),
                             ...taskMap.entries.map((taskEntry) => Padding(
                                   padding: const EdgeInsets.only(bottom: 6),
@@ -785,53 +362,37 @@ class _ReportsTabState extends State<ReportsTab> {
                       ),
                     );
                   }),
-                  const SizedBox(height: 16),
                 ],
-
-                // By Worker
                 if (byWorker.isNotEmpty) ...[
-                  const SectionHeader(
-                      title: 'By Worker',
-                      icon: Icons.people_rounded,
-                      color: C.green),
-                  GlassCard(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: byWorker.entries
-                          .map((e) => Padding(
-                                padding:
-                                    const EdgeInsets.only(bottom: 8),
-                                child: Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment
-                                          .spaceBetween,
-                                  children: [
-                                    Text(e.key,
-                                        style: AppTheme.font(
-                                            size: 14,
-                                            color: C.textSub)),
-                                    Text('${e.value}',
-                                        style:
-                                            AppTheme.displayFont(
-                                                size: 14,
-                                                color: C.green)),
-                                  ],
-                                ),
-                              ))
-                          .toList(),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
+                  const SectionHeader(title: 'By Worker', icon: Icons.people_rounded, color: C.green),
+                  ...byWorker.entries.map((entry) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: GlassCard(
+                          padding: const EdgeInsets.all(14),
+                          glowColor: C.green,
+                          glowBlur: 12,
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SizedBox(
+                                width: 120,
+                                child: Text(entry.key,
+                                    style: AppTheme.font(size: 12, weight: FontWeight.w700, color: C.green)),
+                              ),
+                              Expanded(
+                                child: Text(entry.value.toString(), style: AppTheme.font(size: 12, color: C.textSub)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )),
                 ],
-
                 if (claimScans.isNotEmpty) ...[
-                  const SectionHeader(
-                      title: 'Claim Sheet Photos',
-                      icon: Icons.photo_library_rounded,
-                      color: C.cyan),
+                  const SizedBox(height: 12),
+                  const SectionHeader(title: 'Claim Sheet Photos', icon: Icons.photo_library_rounded, color: C.cyan),
                   ...claimScans.map((scan) {
                     final imageUrl = state.api.resolveMediaUrl(scan['image_url']?.toString());
-                    final assignmentSummary = Map<String, dynamic>.from(scan['assignment_summary'] ?? {});
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: GlassCard(
@@ -839,22 +400,11 @@ class _ReportsTabState extends State<ReportsTab> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              scan['power_block_name']?.toString() ?? 'Claim Sheet',
-                              style: AppTheme.font(size: 14, weight: FontWeight.w700),
-                            ),
+                            Text(scan['power_block_name']?.toString() ?? 'Claim Sheet',
+                                style: AppTheme.font(size: 14, weight: FontWeight.w700)),
                             const SizedBox(height: 4),
-                            Text(
-                              (scan['people'] as List? ?? const []).join(', '),
-                              style: AppTheme.font(size: 12, color: C.textSub),
-                            ),
-                            if (assignmentSummary.isNotEmpty) ...[
-                              const SizedBox(height: 8),
-                              Text(
-                                assignmentSummary.entries.map((entry) => '${entry.key}: ${entry.value}').join(' • '),
-                                style: AppTheme.font(size: 11, color: C.cyan),
-                              ),
-                            ],
+                            Text((scan['people'] as List? ?? const []).join(', '),
+                                style: AppTheme.font(size: 12, color: C.textSub)),
                             if (imageUrl != null) ...[
                               const SizedBox(height: 12),
                               ClipRRect(
@@ -872,47 +422,10 @@ class _ReportsTabState extends State<ReportsTab> {
                       ),
                     );
                   }),
-                  const SizedBox(height: 16),
                 ],
-
-                // Workers list
-                if (workerNames.isNotEmpty) ...[
-                  const SectionHeader(
-                      title: 'Workers',
-                      icon: Icons.person_rounded,
-                      color: C.purple),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: workerNames
-                        .map((n) => Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: C.purple
-                                    .withValues(alpha: 0.12),
-                                borderRadius:
-                                    BorderRadius.circular(20),
-                                border: Border.all(
-                                    color: C.purple
-                                        .withValues(alpha: 0.3)),
-                              ),
-                              child: Text(n,
-                                  style: AppTheme.font(
-                                      size: 12,
-                                      weight: FontWeight.w600,
-                                      color: C.purple)),
-                            ))
-                        .toList(),
-                  ),
-                ],
-
                 if (rawEntries.isNotEmpty) ...[
-                  const SizedBox(height: 18),
-                  const SectionHeader(
-                      title: 'Detailed Activity Log',
-                      icon: Icons.fact_check_rounded,
-                      color: C.cyan),
+                  const SizedBox(height: 12),
+                  const SectionHeader(title: 'Detailed Activity Log', icon: Icons.fact_check_rounded, color: C.cyan),
                   ...rawEntries.map((entry) => Padding(
                         padding: const EdgeInsets.only(bottom: 10),
                         child: GlassCard(
@@ -921,16 +434,15 @@ class _ReportsTabState extends State<ReportsTab> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '${entry['worker_name'] ?? ''} · ${entry['task_type'] ?? ''}',
+                                '${entry['worker_name'] ?? 'Unknown'} · ${entry['task_type'] ?? 'Task'}',
                                 style: AppTheme.font(size: 13, weight: FontWeight.w700),
                               ),
                               const SizedBox(height: 4),
+                              Text(entry['power_block_name']?.toString() ?? 'Unknown power block',
+                                  style: AppTheme.font(size: 12, color: C.textSub)),
+                              const SizedBox(height: 4),
                               Text(
-                                'Power Block: ${entry['power_block_name'] ?? ''}',
-                                style: AppTheme.font(size: 12, color: C.textSub),
-                              ),
-                              Text(
-                                'Date: ${entry['work_date'] ?? ''}  •  Logged By: ${entry['logged_by'] ?? 'Unknown'}',
+                                'Logged by ${entry['logged_by'] ?? 'Unknown'} on ${entry['work_date'] ?? ''}',
                                 style: AppTheme.font(size: 11, color: C.textDim),
                               ),
                             ],
@@ -945,11 +457,142 @@ class _ReportsTabState extends State<ReportsTab> {
       },
     );
   }
-}
 
-// Keep old name for backward compat
-class ReportsScreen extends StatelessWidget {
-  const ReportsScreen({super.key});
   @override
-  Widget build(BuildContext context) => const ReportsTab();
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          child: GestureDetector(
+            onTap: _generateToday,
+            child: GlassCard(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              borderRadius: 14,
+              glowColor: C.green,
+              glowBlur: 10,
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: C.green.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.add_chart_rounded, color: C.green, size: 20),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Generate Report', style: AppTheme.font(size: 15, weight: FontWeight.w700)),
+                        Text("Create today's status report", style: AppTheme.font(size: 12, color: C.textSub)),
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.arrow_forward_rounded, color: C.green.withValues(alpha: 0.6), size: 20),
+                ],
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator(color: C.cyan, strokeWidth: 2))
+              : _reports.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.insights_rounded, color: C.textDim, size: 48),
+                          const SizedBox(height: 12),
+                          Text('No reports yet', style: AppTheme.font(color: C.textDim)),
+                        ],
+                      ),
+                    )
+                  : RefreshIndicator(
+                      color: C.cyan,
+                      backgroundColor: C.surface,
+                      onRefresh: _load,
+                      child: ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+                        itemCount: _reports.length,
+                        itemBuilder: (ctx, index) {
+                          final report = _reports[index];
+                          final previewUrl = state.api.resolveMediaUrl(report.latestClaimScanImageUrl);
+                          return GestureDetector(
+                            onTap: () => _showDetail(report.id),
+                            child: Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              padding: const EdgeInsets.all(16),
+                              decoration: AppTheme.glassDecoration(radius: 16),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: C.cyan.withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Icon(Icons.description_rounded, color: C.cyan, size: 20),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(report.reportDate, style: AppTheme.font(size: 16, weight: FontWeight.w700)),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          '${report.data['total_entries'] ?? 0} updates captured for the day',
+                                          style: AppTheme.font(size: 12, color: C.textSub),
+                                        ),
+                                        if (report.claimScanCount > 0) ...[
+                                          const SizedBox(height: 8),
+                                          Wrap(
+                                            spacing: 8,
+                                            runSpacing: 8,
+                                            children: [
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                decoration: BoxDecoration(
+                                                  color: C.cyan.withValues(alpha: 0.12),
+                                                  borderRadius: BorderRadius.circular(999),
+                                                  border: Border.all(color: C.cyan.withValues(alpha: 0.25)),
+                                                ),
+                                                child: Text(
+                                                  '${report.claimScanCount} claim scan${report.claimScanCount == 1 ? '' : 's'}',
+                                                  style: AppTheme.font(size: 11, weight: FontWeight.w700, color: C.cyan),
+                                                ),
+                                              ),
+                                              if ((report.latestClaimScanPowerBlock ?? '').isNotEmpty)
+                                                Text(report.latestClaimScanPowerBlock!, style: AppTheme.font(size: 11, color: C.textSub)),
+                                            ],
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                  if (previewUrl != null) ...[
+                                    const SizedBox(width: 12),
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: _buildClaimScanPreview(imageUrl: previewUrl, width: 56, height: 56),
+                                    ),
+                                  ],
+                                  Icon(Icons.chevron_right_rounded, color: C.textDim, size: 20),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+        ),
+      ],
+    );
+  }
 }

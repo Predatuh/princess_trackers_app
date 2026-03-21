@@ -1,4 +1,4 @@
-const Set<String> _retiredStatusTypes = {'quality_check', 'quality_docs'};
+const Set<String> _retiredStatusTypes = {'quality_check', 'quality_docs', 'fix'};
 
 class Tracker {
   final int id;

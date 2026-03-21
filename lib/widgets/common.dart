@@ -377,11 +377,12 @@ class FuturisticNavBar extends StatelessWidget {
     _NavItem(Icons.assignment_turned_in_rounded, 'Claim', 3),
     _NavItem(Icons.insights_rounded, 'Reports', 4),
   ];
-  static const _adminItem = _NavItem(Icons.settings_rounded, 'Admin', 5);
+  static const _reviewItem = _NavItem(Icons.verified_rounded, 'Review', 5);
+  static const _adminItem = _NavItem(Icons.settings_rounded, 'Admin', 6);
 
   @override
   Widget build(BuildContext context) {
-    final items = showAdmin ? [..._baseItems, _adminItem] : _baseItems;
+    final items = showAdmin ? [..._baseItems, _reviewItem, _adminItem] : _baseItems;
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
