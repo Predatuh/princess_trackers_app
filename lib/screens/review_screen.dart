@@ -56,6 +56,14 @@ class _ReviewTabState extends State<ReviewTab> {
     return null;
   }
 
+  void _mergeReviewEntries(List<ReviewEntry> newEntries) {
+    final replacedLbdIds = newEntries.map((entry) => entry.lbdId).toSet();
+    final retainedEntries = _entries.where((entry) {
+      return !(replacedLbdIds.contains(entry.lbdId) && entry.reviewDate == _selectedDateIso);
+    }).toList();
+    _entries = [...newEntries, ...retainedEntries];
+  }
+
   ({int passCount, int failCount, int pendingCount, int total}) _blockSummary(PowerBlock block) {
     int passCount = 0;
     int failCount = 0;
@@ -136,13 +144,14 @@ class _ReviewTabState extends State<ReviewTab> {
   Future<void> _openBulkReviewDialog(PowerBlock block) async {
     final state = context.read<AppState>();
     final lbds = _lbdsForBlock(block);
-    final selectedIds = <int>{for (final lbd in lbds) lbd.id};
-    final draftResults = <int, String>{
+    final selectedIds = <int>{};
+    final currentResults = <int, String>{
       for (final lbd in lbds)
-        if ((_latestEntryForLbd(lbd.id)?.reviewResult ?? '').isNotEmpty) lbd.id: _latestEntryForLbd(lbd.id)!.reviewResult,
+        lbd.id: _latestEntryForLbd(lbd.id)?.reviewResult ?? 'pending',
     };
     final notesController = TextEditingController();
     bool saving = false;
+    String activeView = 'pending';
 
     try {
       await showDialog<void>(
@@ -154,15 +163,86 @@ class _ReviewTabState extends State<ReviewTab> {
               final navigator = Navigator.of(dialogContext);
               final messenger = ScaffoldMessenger.of(this.context);
 
-              void applyResult(String result) {
-                setDialogState(() {
-                  for (final id in selectedIds) {
-                    draftResults[id] = result;
-                  }
-                });
+              int countForView(String view) {
+                if (view == 'selected') return selectedIds.length;
+                if (view == 'all') return lbds.length;
+                return lbds.where((lbd) => (currentResults[lbd.id] ?? 'pending') == view).length;
               }
 
-              final draftedCount = draftResults.length;
+              List<LbdItem> visibleLbds() {
+                final sorted = [...lbds]
+                  ..sort((left, right) {
+                    final leftSelected = selectedIds.contains(left.id) ? 0 : 1;
+                    final rightSelected = selectedIds.contains(right.id) ? 0 : 1;
+                    if (leftSelected != rightSelected) return leftSelected - rightSelected;
+                    return _lbdLabel(left).compareTo(_lbdLabel(right));
+                  });
+
+                return sorted.where((lbd) {
+                  final status = currentResults[lbd.id] ?? 'pending';
+                  switch (activeView) {
+                    case 'selected':
+                      return selectedIds.contains(lbd.id);
+                    case 'pass':
+                    case 'fail':
+                    case 'pending':
+                      return status == activeView;
+                    default:
+                      return true;
+                  }
+                }).toList();
+              }
+
+              Future<void> applyResult(String result) async {
+                final targetIds = selectedIds.toList();
+                if (targetIds.isEmpty) {
+                  return;
+                }
+
+                setDialogState(() => saving = true);
+                try {
+                  final createdEntries = await state.api.submitBulkReviews(
+                    reviews: [
+                      for (final lbdId in targetIds)
+                        {
+                          'lbd_id': lbdId,
+                          'review_result': result,
+                        }
+                    ],
+                    reviewDate: _selectedDateIso,
+                    notes: notesController.text.trim(),
+                    trackerId: state.currentTracker?.id,
+                  );
+                  _reportDetails.clear();
+                  if (mounted) {
+                    setState(() => _mergeReviewEntries(createdEntries));
+                  } else {
+                    _mergeReviewEntries(createdEntries);
+                  }
+                  setDialogState(() {
+                    for (final lbdId in targetIds) {
+                      currentResults[lbdId] = result;
+                      selectedIds.remove(lbdId);
+                    }
+                    if (activeView == 'selected' && selectedIds.isEmpty) {
+                      activeView = 'pending';
+                    }
+                    saving = false;
+                  });
+                  notesController.clear();
+                  messenger.showSnackBar(
+                    SnackBar(content: Text('${targetIds.length} LBDs marked ${result.toUpperCase()}.')),
+                  );
+                } catch (error) {
+                  if (!mounted) return;
+                  setDialogState(() => saving = false);
+                  messenger.showSnackBar(
+                    SnackBar(content: Text('Review save failed: $error')),
+                  );
+                }
+              }
+
+              final filteredLbds = visibleLbds();
               return Dialog(
                 insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
                 backgroundColor: Colors.transparent,
@@ -230,17 +310,39 @@ class _ReviewTabState extends State<ReviewTab> {
                             FilledButton(
                               onPressed: saving || selectedIds.isEmpty ? null : () => applyResult('pass'),
                               style: FilledButton.styleFrom(backgroundColor: C.green),
-                              child: const Text('Pass Selected'),
+                              child: Text(saving ? 'Applying...' : 'Pass Selected'),
                             ),
                             FilledButton(
                               onPressed: saving || selectedIds.isEmpty ? null : () => applyResult('fail'),
                               style: FilledButton.styleFrom(backgroundColor: C.gold, foregroundColor: const Color(0xFF231100)),
-                              child: const Text('Fail Selected'),
+                              child: Text(saving ? 'Applying...' : 'Fail Selected'),
                             ),
                             Text(
-                              '${selectedIds.length} selected · $draftedCount drafted',
+                              '${selectedIds.length} selected · ${activeView.toUpperCase()} view',
                               style: AppTheme.font(size: 12, color: C.textSub),
                             ),
+                          ],
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final item in [
+                              ('selected', 'Selected'),
+                              ('pending', 'Pending'),
+                              ('fail', 'Fail'),
+                              ('pass', 'Pass'),
+                              ('all', 'All'),
+                            ])
+                              ChoiceChip(
+                                label: Text('${item.$2} (${countForView(item.$1)})'),
+                                selected: activeView == item.$1,
+                                onSelected: saving ? null : (_) => setDialogState(() => activeView = item.$1),
+                                selectedColor: C.cyan.withValues(alpha: 0.18),
+                              ),
                           ],
                         ),
                       ),
@@ -256,14 +358,17 @@ class _ReviewTabState extends State<ReviewTab> {
                       Expanded(
                         child: lbds.isEmpty
                             ? Center(child: Text('No LBDs found for this power block.', style: AppTheme.font(size: 12, color: C.textSub)))
-                            : ListView.builder(
+                            : filteredLbds.isEmpty
+                                ? Center(
+                                    child: Text('No LBDs in the ${activeView.toUpperCase()} view.', style: AppTheme.font(size: 12, color: C.textSub)),
+                                  )
+                                : ListView.builder(
                                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                                itemCount: lbds.length,
+                                itemCount: filteredLbds.length,
                                 itemBuilder: (context, index) {
-                                  final lbd = lbds[index];
+                                  final lbd = filteredLbds[index];
                                   final latest = _latestEntryForLbd(lbd.id);
-                                  final drafted = draftResults[lbd.id];
-                                  final current = drafted ?? latest?.reviewResult;
+                                  final current = currentResults[lbd.id] ?? 'pending';
                                   final tone = current == 'pass'
                                       ? C.green
                                       : current == 'fail'
@@ -326,48 +431,7 @@ class _ReviewTabState extends State<ReviewTab> {
                             Expanded(
                               child: OutlinedButton(
                                 onPressed: saving ? null : () => navigator.pop(),
-                                child: const Text('Cancel'),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: NeonButton(
-                                label: saving ? 'SAVING...' : 'SAVE DRAFTED REVIEWS',
-                                icon: Icons.verified_rounded,
-                                onPressed: saving || draftResults.isEmpty
-                                    ? null
-                                    : () async {
-                                        setDialogState(() => saving = true);
-                                        try {
-                                          await state.api.submitBulkReviews(
-                                            reviews: [
-                                              for (final entry in draftResults.entries)
-                                                {
-                                                  'lbd_id': entry.key,
-                                                  'review_result': entry.value,
-                                                }
-                                            ],
-                                            reviewDate: _selectedDateIso,
-                                            notes: notesController.text.trim(),
-                                            trackerId: state.currentTracker?.id,
-                                          );
-                                          _reportDetails.clear();
-                                          navigator.pop();
-                                          await _load();
-                                          if (!mounted) return;
-                                          messenger.showSnackBar(
-                                            const SnackBar(content: Text('Review updates saved.')),
-                                          );
-                                        } catch (error) {
-                                          if (!mounted) return;
-                                          setDialogState(() => saving = false);
-                                          messenger.showSnackBar(
-                                            SnackBar(content: Text('Review save failed: $error')),
-                                          );
-                                        }
-                                      },
-                                height: 48,
-                                gradientColors: const [C.green, Color(0xFF00A96C)],
+                                child: const Text('Done'),
                               ),
                             ),
                           ],
