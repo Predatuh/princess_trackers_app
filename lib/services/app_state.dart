@@ -7,6 +7,7 @@ import '../models/tracker.dart';
 import '../models/power_block.dart';
 import '../models/app_models.dart';
 import '../services/api_service.dart';
+import '../services/ifc_cache_service.dart';
 import '../services/realtime_sync_service.dart';
 
 class AppState extends ChangeNotifier {
@@ -46,6 +47,7 @@ class AppState extends ChangeNotifier {
   // Offline state
   bool isOffline = false;
   final List<Map<String, dynamic>> _pendingQueue = [];
+  final Set<int> _ifcWarmupsInFlight = <int>{};
   late final Stream<List<ConnectivityResult>> _connectivityStream;
 
   int get pendingQueueCount => _pendingQueue.length;
@@ -669,6 +671,7 @@ class AppState extends ChangeNotifier {
       allTrackerBlocks[activeTrackerId] = loadedBlocks;
       debugPrint('loadBlocks: got ${loadedBlocks.length} blocks for tracker $activeTrackerId');
       await _cacheBlocks(activeTrackerId, loadedBlocks);
+      unawaited(_warmIfcCache(loadedBlocks));
       if (currentTracker?.id == activeTrackerId) {
         blocks = loadedBlocks;
         error = null;
@@ -691,6 +694,42 @@ class AppState extends ChangeNotifier {
       isLoading = false;
     }
     notifyListeners();
+  }
+
+  Future<void> _warmIfcCache(List<PowerBlock> blockList) async {
+    if (isOffline) {
+      return;
+    }
+
+    for (final block in blockList.where((entry) => entry.hasIfc)) {
+      if (_ifcWarmupsInFlight.contains(block.id)) {
+        continue;
+      }
+
+      final existing = await IfcCacheService.existingFileForBlock(
+        block.id,
+        filename: block.ifcFilename,
+      );
+      if (existing != null) {
+        continue;
+      }
+
+      _ifcWarmupsInFlight.add(block.id);
+      try {
+        final bytes = await api.getIfcPdf(block.id);
+        if (bytes != null && bytes.isNotEmpty) {
+          await IfcCacheService.storePdfBytes(
+            block.id,
+            bytes,
+            filename: block.ifcFilename,
+          );
+        }
+      } catch (error) {
+        debugPrint('IFC cache warmup failed for block ${block.id}: $error');
+      } finally {
+        _ifcWarmupsInFlight.remove(block.id);
+      }
+    }
   }
 
   Future<void> toggleStatus(int lbdId, String statusType, bool value) async {

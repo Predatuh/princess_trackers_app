@@ -1,9 +1,10 @@
-import 'dart:typed_data';
+import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 import '../services/app_state.dart';
+import '../services/ifc_cache_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 
@@ -17,8 +18,9 @@ class IfcViewerScreen extends StatefulWidget {
 class _IfcViewerScreenState extends State<IfcViewerScreen> {
   bool _loading = true;
   String? _error;
-  Uint8List? _pdfBytes;
-  List<ui.Image> _pageImages = [];
+  String? _cachedPdfPath;
+  ui.Image? _pageImage;
+  bool _started = false;
 
   String _blockName = '';
   int? _pageNumber;
@@ -27,7 +29,11 @@ class _IfcViewerScreenState extends State<IfcViewerScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_loading && _pdfBytes == null && _error == null) {
+    if (_started) {
+      return;
+    }
+    _started = true;
+    if (_loading && _cachedPdfPath == null && _error == null) {
       final args =
           ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
       if (args != null) {
@@ -50,15 +56,30 @@ class _IfcViewerScreenState extends State<IfcViewerScreen> {
   Future<void> _loadIfc(int blockId) async {
     try {
       final api = context.read<AppState>().api;
-      final bytes = await api.getIfcPdf(blockId);
+      File? cachedFile = await IfcCacheService.existingFileForBlock(
+        blockId,
+        filename: _filename,
+      );
+
+      if (cachedFile == null) {
+        final bytes = await api.getIfcPdf(blockId);
+        if (bytes != null && bytes.isNotEmpty) {
+          cachedFile = await IfcCacheService.storePdfBytes(
+            blockId,
+            bytes,
+            filename: _filename,
+          );
+        }
+      }
+
       if (!mounted) return;
-      if (bytes != null && bytes.isNotEmpty) {
-        _pdfBytes = bytes;
-        await _rasterizePages(bytes);
+      if (cachedFile != null && await cachedFile.exists()) {
+        _cachedPdfPath = cachedFile.path;
+        await _rasterizePage(cachedFile);
       } else {
         setState(() {
           _loading = false;
-          _error = 'No IFC drawing available for this power block.';
+          _error = 'No IFC drawing available for this power block or in offline cache.';
         });
       }
     } catch (e) {
@@ -70,25 +91,28 @@ class _IfcViewerScreenState extends State<IfcViewerScreen> {
     }
   }
 
-  Future<void> _rasterizePages(Uint8List bytes) async {
-    final images = <ui.Image>[];
-    // Use the device pixel ratio for crisp rendering
-    final dpr = MediaQuery.of(context).devicePixelRatio;
-    await for (final page in Printing.raster(bytes, dpi: 150 * dpr)) {
-      images.add(await page.toImage());
+  Future<void> _rasterizePage(File file) async {
+    final bytes = await file.readAsBytes();
+    ui.Image? image;
+    await for (final page in Printing.raster(bytes, dpi: 72, pages: const <int>[0])) {
+      image = await page.toImage();
+      break;
     }
     if (!mounted) return;
+
+    _pageImage?.dispose();
     setState(() {
-      _pageImages = images;
+      _pageImage = image;
       _loading = false;
+      if (image == null) {
+        _error = 'Could not render the IFC drawing on this device.';
+      }
     });
   }
 
   @override
   void dispose() {
-    for (final img in _pageImages) {
-      img.dispose();
-    }
+    _pageImage?.dispose();
     super.dispose();
   }
 
@@ -116,16 +140,11 @@ class _IfcViewerScreenState extends State<IfcViewerScreen> {
           ],
         ),
         actions: [
-          if (_pdfBytes != null)
+          if (_cachedPdfPath != null)
             IconButton(
               icon: const Icon(Icons.share_rounded, color: C.cyan),
               tooltip: 'Share / Print',
-              onPressed: () {
-                Printing.sharePdf(
-                  bytes: _pdfBytes!,
-                  filename: _filename ?? '$_blockName-IFC.pdf',
-                );
-              },
+              onPressed: _shareIfc,
             ),
         ],
       ),
@@ -163,7 +182,7 @@ class _IfcViewerScreenState extends State<IfcViewerScreen> {
         ),
       );
     }
-    if (_pageImages.isEmpty) {
+    if (_pageImage == null) {
       return const SizedBox.shrink();
     }
 
@@ -173,18 +192,34 @@ class _IfcViewerScreenState extends State<IfcViewerScreen> {
       child: SingleChildScrollView(
         child: Column(
           children: [
-            for (final img in _pageImages)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: RawImage(
-                  image: img,
-                  fit: BoxFit.contain,
-                  width: MediaQuery.of(context).size.width,
-                ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: RawImage(
+                image: _pageImage,
+                fit: BoxFit.contain,
+                width: MediaQuery.of(context).size.width,
               ),
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _shareIfc() async {
+    final path = _cachedPdfPath;
+    if (path == null) {
+      return;
+    }
+
+    final bytes = await File(path).readAsBytes();
+    if (!mounted) {
+      return;
+    }
+
+    await Printing.sharePdf(
+      bytes: bytes,
+      filename: _filename ?? '$_blockName-IFC.pdf',
     );
   }
 }
