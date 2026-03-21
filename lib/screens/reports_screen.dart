@@ -277,7 +277,16 @@ class _ReportsTabState extends State<ReportsTab> {
   Future<void> _generateToday() async {
     final state = context.read<AppState>();
     await state.api.generateReport(trackerId: state.currentTracker?.id);
-    _load();
+    await _load();
+  }
+
+  Future<void> _generateFixReport() async {
+    final state = context.read<AppState>();
+    await state.api.generateReport(trackerId: state.currentTracker?.id);
+    if (!mounted) return;
+    await _load();
+    if (!mounted) return;
+    setState(() => _fixOnly = true);
   }
 
   @override
@@ -285,47 +294,95 @@ class _ReportsTabState extends State<ReportsTab> {
     final state = context.watch<AppState>();
     return Column(
       children: [
-        // Generate report button
+        // Generate report actions
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-          child: GestureDetector(
-            onTap: _generateToday,
-            child: GlassCard(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 16, vertical: 14),
-              borderRadius: 14,
-              glowColor: C.green,
-              glowBlur: 10,
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: C.green.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.add_chart_rounded,
-                        color: C.green, size: 20),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: _generateToday,
+                  child: GlassCard(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14),
+                    borderRadius: 14,
+                    glowColor: C.green,
+                    glowBlur: 10,
+                    child: Row(
                       children: [
-                        Text('Generate Report',
-                            style: AppTheme.font(
-                                size: 15, weight: FontWeight.w700)),
-                        Text("Create today's status report",
-                            style:
-                                AppTheme.font(size: 12, color: C.textSub)),
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: C.green.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.add_chart_rounded,
+                              color: C.green, size: 20),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Generate Report',
+                                  style: AppTheme.font(
+                                      size: 15, weight: FontWeight.w700)),
+                              Text("Create today's status report",
+                                  style: AppTheme.font(
+                                      size: 12, color: C.textSub)),
+                            ],
+                          ),
+                        ),
+                        Icon(Icons.arrow_forward_rounded,
+                            color: C.green.withValues(alpha: 0.6), size: 20),
                       ],
                     ),
                   ),
-                  Icon(Icons.arrow_forward_rounded,
-                      color: C.green.withValues(alpha: 0.6), size: 20),
-                ],
+                ),
               ),
-            ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: GestureDetector(
+                  onTap: _generateFixReport,
+                  child: GlassCard(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14),
+                    borderRadius: 14,
+                    glowColor: C.gold,
+                    glowBlur: 10,
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: C.gold.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.build_circle_outlined,
+                              color: C.gold, size: 20),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Generate Fix Report',
+                                  style: AppTheme.font(
+                                      size: 15, weight: FontWeight.w700)),
+                              Text('Generate and jump to fix activity',
+                                  style: AppTheme.font(
+                                      size: 12, color: C.textSub)),
+                            ],
+                          ),
+                        ),
+                        Icon(Icons.arrow_forward_rounded,
+                            color: C.gold.withValues(alpha: 0.7), size: 20),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
         Padding(

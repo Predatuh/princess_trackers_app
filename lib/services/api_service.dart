@@ -8,14 +8,15 @@ import 'http_client.dart';
 
 class ApiService {
   static const String railwayBaseUrl = 'https://tracker-production-74add.up.railway.app';
+  static const String customDomainBaseUrl = 'https://www.princesstrackers.com';
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: railwayBaseUrl,
+    defaultValue: customDomainBaseUrl,
   );
   static const List<String> _fallbackBaseUrls = <String>[
-    railwayBaseUrl,
+    customDomainBaseUrl,
     'https://princesstrackers.com',
-    'https://www.princesstrackers.com',
+    railwayBaseUrl,
   ];
   late final http.Client _client;
   late String _activeRootUrl;
