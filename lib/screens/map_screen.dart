@@ -716,7 +716,7 @@ class _MapTabState extends State<MapTab> {
             Text(tracker.icon, style: const TextStyle(fontSize: 12)),
             const SizedBox(width: 6),
             Text(
-              tracker.name,
+              tracker.displayName,
               style: AppTheme.font(
                 size: 11,
                 color: active ? C.cyan : C.textSub,

@@ -76,4 +76,11 @@ class Tracker {
         'status_names': statusNames,
         'is_active': isActive,
       };
+
+  String get displayName {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return trimmed;
+    final stripped = trimmed.replaceFirst(RegExp(r'\s+tracker$', caseSensitive: false), '').trim();
+    return stripped.isNotEmpty ? stripped : trimmed;
+  }
 }

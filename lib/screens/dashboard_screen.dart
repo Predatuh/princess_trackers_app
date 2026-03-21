@@ -189,7 +189,7 @@ class _TrackerHubCard extends StatelessWidget {
                 const SizedBox(width: 14),
                 Expanded(
                   child: Text(
-                    tracker.name,
+                    tracker.displayName,
                     style: AppTheme.font(
                       size: 16,
                       weight: FontWeight.w700,
