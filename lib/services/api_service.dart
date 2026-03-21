@@ -7,24 +7,127 @@ import '../models/app_models.dart';
 import 'http_client.dart';
 
 class ApiService {
+  static const String railwayBaseUrl = 'https://tracker-production-74add.up.railway.app';
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'https://tracker-production-74add.up.railway.app',
+    defaultValue: railwayBaseUrl,
   );
+  static const List<String> _fallbackBaseUrls = <String>[
+    railwayBaseUrl,
+    'https://princesstrackers.com',
+    'https://www.princesstrackers.com',
+  ];
   late final http.Client _client;
+  late String _activeRootUrl;
   User? currentUser;
 
   ApiService() {
     _client = createHttpClient();
+    _activeRootUrl = _normalizeBaseUrl(baseUrl);
   }
 
-  String get _rootUrl => baseUrl.endsWith('/')
-      ? baseUrl.substring(0, baseUrl.length - 1)
-      : baseUrl;
+  static String _normalizeBaseUrl(String rawUrl) => rawUrl.endsWith('/')
+      ? rawUrl.substring(0, rawUrl.length - 1)
+      : rawUrl;
+
+  String get currentBaseUrl => _activeRootUrl;
+
+  List<String> get _rootUrlCandidates {
+    final ordered = <String>[_activeRootUrl];
+    for (final rawUrl in <String>[baseUrl, ..._fallbackBaseUrls]) {
+      final normalized = _normalizeBaseUrl(rawUrl);
+      if (!ordered.contains(normalized)) {
+        ordered.add(normalized);
+      }
+    }
+    return ordered;
+  }
 
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
       };
+
+  bool _looksLikeDeadHost(http.Response res) {
+    if ((res.headers['x-railway-fallback'] ?? '').toLowerCase() == 'true') {
+      return true;
+    }
+    if (res.statusCode >= 500) {
+      return true;
+    }
+    if (res.statusCode != 404) {
+      return false;
+    }
+    final body = res.body.toLowerCase();
+    return body.contains('application not found') || body.contains('x-railway-fallback');
+  }
+
+  void _rememberWorkingRoot(String rootUrl) {
+    if (_activeRootUrl == rootUrl) {
+      return;
+    }
+    _activeRootUrl = rootUrl;
+    if (kDebugMode) {
+      debugPrint('ApiService switched active host to $_activeRootUrl');
+    }
+  }
+
+  Future<http.Response> _sendWithFallback(
+    String method,
+    String path, {
+    Map<String, String>? headers,
+    Object? body,
+  }) async {
+    Object? lastError;
+    http.Response? lastResponse;
+
+    for (final rootUrl in _rootUrlCandidates) {
+      try {
+        final uri = Uri.parse('$rootUrl$path');
+        late final http.Response response;
+        switch (method) {
+          case 'GET':
+            response = await _client.get(uri, headers: headers);
+            break;
+          case 'POST':
+            response = await _client.post(uri, headers: headers, body: body);
+            break;
+          case 'PUT':
+            response = await _client.put(uri, headers: headers, body: body);
+            break;
+          case 'DELETE':
+            response = await _client.delete(uri, headers: headers);
+            break;
+          default:
+            throw UnsupportedError('Unsupported method $method');
+        }
+
+        if (_looksLikeDeadHost(response)) {
+          lastResponse = response;
+          continue;
+        }
+
+        _rememberWorkingRoot(rootUrl);
+        return response;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (lastResponse != null) {
+      return lastResponse;
+    }
+    throw Exception(lastError?.toString() ?? 'Request failed');
+  }
+
+  Future<http.Response> _get(String path) => _sendWithFallback('GET', path, headers: _headers);
+
+  Future<http.Response> _post(String path, {Object? body}) =>
+      _sendWithFallback('POST', path, headers: _headers, body: body);
+
+  Future<http.Response> _put(String path, {Object? body}) =>
+      _sendWithFallback('PUT', path, headers: _headers, body: body);
+
+  Future<http.Response> _delete(String path) => _sendWithFallback('DELETE', path, headers: _headers);
 
   Map<String, dynamic> _decodeJsonResponse(http.Response res, String operation) {
     if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -75,11 +178,7 @@ class ApiService {
   // ── Auth ──────────────────────────────────────────────
 
   Future<AuthFlowResult> login(String name, String pin) async {
-    final res = await _client.post(
-      Uri.parse('$_rootUrl/api/auth/login'),
-      headers: _headers,
-      body: jsonEncode({'name': name, 'pin': pin}),
-    );
+    final res = await _post('/api/auth/login', body: jsonEncode({'name': name, 'pin': pin}));
     return _parseAuthResult(res, 'Invalid name or PIN');
   }
 
@@ -88,23 +187,16 @@ class ApiService {
     String pin, {
     required String jobToken,
   }) async {
-    final res = await _client.post(
-      Uri.parse('$_rootUrl/api/auth/register'),
-      headers: _headers,
-      body: jsonEncode({
+    final res = await _post('/api/auth/register', body: jsonEncode({
         'name': name,
         'pin': pin,
         'job_token': jobToken,
-      }),
-    );
+      }));
     return _parseAuthResult(res, 'Failed to create account');
   }
 
   Future<User?> checkSession() async {
-    final res = await _client.get(
-      Uri.parse('$_rootUrl/api/auth/me'),
-      headers: _headers,
-    );
+    final res = await _get('/api/auth/me');
     if (res.statusCode == 200) {
       final j = jsonDecode(res.body);
       if (j['user'] != null) {
@@ -116,7 +208,7 @@ class ApiService {
   }
 
   Future<void> logout() async {
-    await _client.post(Uri.parse('$_rootUrl/api/auth/logout'), headers: _headers);
+    await _post('/api/auth/logout');
     await clearPersistedCookies();
     currentUser = null;
   }
@@ -124,10 +216,7 @@ class ApiService {
   // ── Trackers ──────────────────────────────────────────
 
   Future<List<Tracker>> getTrackers() async {
-    final res = await _client.get(
-      Uri.parse('$_rootUrl/api/admin/trackers'),
-      headers: _headers,
-    );
+    final res = await _get('/api/admin/trackers');
     final j = _decodeJsonResponse(res, 'Load trackers');
     return (j['data'] as List).map((t) => Tracker.fromJson(t)).toList();
   }
@@ -135,20 +224,14 @@ class ApiService {
   // ── Settings ──────────────────────────────────────────
 
   Future<Map<String, dynamic>> getSettings(int trackerId) async {
-    final res = await _client.get(
-      Uri.parse('$_rootUrl/api/admin/settings?tracker_id=$trackerId'),
-      headers: _headers,
-    );
+    final res = await _get('/api/admin/settings?tracker_id=$trackerId');
     return _decodeJsonResponse(res, 'Load settings')['data'];
   }
 
   // ── Power Blocks ──────────────────────────────────────
 
   Future<List<PowerBlock>> getPowerBlocks(int trackerId) async {
-    final res = await _client.get(
-      Uri.parse('$_rootUrl/api/tracker/power-blocks?tracker_id=$trackerId'),
-      headers: _headers,
-    );
+    final res = await _get('/api/tracker/power-blocks?tracker_id=$trackerId');
     if (kDebugMode) {
       debugPrint('getPowerBlocks status=${res.statusCode} bodyLen=${res.body.length}');
     }
@@ -160,10 +243,7 @@ class ApiService {
   }
 
   Future<PowerBlock> getPowerBlock(int id) async {
-    final res = await _client.get(
-      Uri.parse('$_rootUrl/api/tracker/power-blocks/$id'),
-      headers: _headers,
-    );
+    final res = await _get('/api/tracker/power-blocks/$id');
     return PowerBlock.fromJson(_decodeJsonResponse(res, 'Load power block')['data']);
   }
 
@@ -171,21 +251,15 @@ class ApiService {
 
   Future<bool> updateLbdStatus(
       int lbdId, String statusType, bool isCompleted) async {
-    final res = await _client.put(
-      Uri.parse('$_rootUrl/api/tracker/lbds/$lbdId/status/$statusType'),
-      headers: _headers,
-      body: jsonEncode({'is_completed': isCompleted}),
-    );
+    final res = await _put('/api/tracker/lbds/$lbdId/status/$statusType',
+        body: jsonEncode({'is_completed': isCompleted}));
     return res.statusCode == 200;
   }
 
   // ── Claim ─────────────────────────────────────────────
 
   Future<List<String>> getClaimPeople() async {
-    final res = await _client.get(
-      Uri.parse('$_rootUrl/api/tracker/claim-people'),
-      headers: _headers,
-    );
+    final res = await _get('/api/tracker/claim-people');
     if (res.statusCode == 404) {
       final fallback = <String>[];
       final name = currentUser?.name.trim();
@@ -202,16 +276,12 @@ class ApiService {
       {bool claim = true,
       List<String> people = const [],
       Map<String, List<int>> assignments = const {}}) async {
-    final res = await _client.post(
-      Uri.parse('$_rootUrl/api/tracker/power-blocks/$blockId/claim'),
-      headers: _headers,
-      body: jsonEncode({
+    final res = await _post('/api/tracker/power-blocks/$blockId/claim', body: jsonEncode({
         'action': claim ? 'claim' : 'unclaim',
         'actor_name': currentUser?.name,
         'people': people,
         'assignments': assignments,
-      }),
-    );
+      }));
     return res.statusCode == 200;
   }
 
@@ -221,16 +291,12 @@ class ApiService {
     required Uint8List fileBytes,
     int? trackerId,
   }) async {
-    final res = await _client.post(
-      Uri.parse('$_rootUrl/api/reports/claim-scan/draft'),
-      headers: _headers,
-      body: jsonEncode({
+    final res = await _post('/api/reports/claim-scan/draft', body: jsonEncode({
         'power_block_id': blockId,
         'tracker_id': trackerId,
         'file_name': fileName,
         'image_base64': base64Encode(fileBytes),
-      }),
-    );
+      }));
     if (res.statusCode == 404) {
       throw Exception('Claim sheet upload is not available on this server yet.');
     }
@@ -244,18 +310,14 @@ class ApiService {
     required Map<String, dynamic> draft,
     int? trackerId,
   }) async {
-    final res = await _client.post(
-      Uri.parse('$_rootUrl/api/reports/claim-scan/submit'),
-      headers: _headers,
-      body: jsonEncode({
+    final res = await _post('/api/reports/claim-scan/submit', body: jsonEncode({
         'power_block_id': blockId,
         'tracker_id': trackerId,
         'actor_name': currentUser?.name,
         'people': people,
         'assignments': assignments,
         'draft': draft,
-      }),
-    );
+      }));
     if (res.statusCode == 404) {
       throw Exception('Claim sheet upload is not available on this server yet.');
     }
@@ -267,7 +329,7 @@ class ApiService {
     if (path.startsWith('http://') || path.startsWith('https://')) {
       return path;
     }
-    return '$_rootUrl$path';
+    return '$currentBaseUrl$path';
   }
 
   // ── Bulk Complete ─────────────────────────────────────
@@ -276,11 +338,7 @@ class ApiService {
       {List<String>? statusTypes, bool isCompleted = true}) async {
     final body = <String, dynamic>{'power_block_id': blockId, 'is_completed': isCompleted};
     if (statusTypes != null) body['status_types'] = statusTypes;
-    final res = await _client.post(
-      Uri.parse('$_rootUrl/api/admin/bulk-complete'),
-      headers: _headers,
-      body: jsonEncode(body),
-    );
+    final res = await _post('/api/admin/bulk-complete', body: jsonEncode(body));
     if (res.statusCode == 200) {
       return jsonDecode(res.body)['updated'] ?? 0;
     }
@@ -290,10 +348,7 @@ class ApiService {
   // ── Workers ───────────────────────────────────────────
 
   Future<List<Worker>> getWorkers({bool all = false}) async {
-    final res = await _client.get(
-      Uri.parse('$_rootUrl/api/workers${all ? "?all=true" : ""}'),
-      headers: _headers,
-    );
+    final res = await _get('/api/workers${all ? "?all=true" : ""}');
     final j = _decodeJsonResponse(res, 'Load workers');
     return (j['data'] as List).map((w) => Worker.fromJson(w)).toList();
   }
@@ -301,11 +356,7 @@ class ApiService {
   // ── Work Entries ──────────────────────────────────────
 
   Future<List<WorkEntry>> getWorkEntries(String date, int trackerId) async {
-    final res = await _client.get(
-      Uri.parse(
-          '$_rootUrl/api/work-entries?date=$date&tracker_id=$trackerId'),
-      headers: _headers,
-    );
+    final res = await _get('/api/work-entries?date=$date&tracker_id=$trackerId');
     final j = _decodeJsonResponse(res, 'Load work entries');
     return (j['data'] as List).map((e) => WorkEntry.fromJson(e)).toList();
   }
@@ -324,29 +375,19 @@ class ApiService {
       'task_type': taskType,
     };
     if (trackerId != null) body['tracker_id'] = trackerId;
-    final res = await _client.post(
-      Uri.parse('$_rootUrl/api/work-entries'),
-      headers: _headers,
-      body: jsonEncode(body),
-    );
+    final res = await _post('/api/work-entries', body: jsonEncode(body));
     return res.statusCode == 201;
   }
 
   Future<bool> deleteWorkEntry(int id) async {
-    final res = await _client.delete(
-      Uri.parse('$_rootUrl/api/work-entries/$id'),
-      headers: _headers,
-    );
+    final res = await _delete('/api/work-entries/$id');
     return res.statusCode == 200;
   }
 
   // ── Reports ───────────────────────────────────────────
 
   Future<List<DailyReport>> getReports(int trackerId) async {
-    final res = await _client.get(
-      Uri.parse('$_rootUrl/api/reports?tracker_id=$trackerId'),
-      headers: _headers,
-    );
+    final res = await _get('/api/reports?tracker_id=$trackerId');
     final j = jsonDecode(res.body);
     return (j['data'] as List).map((r) => DailyReport.fromJson(r)).toList();
   }
@@ -354,10 +395,7 @@ class ApiService {
   // ── Map ─────────────────────────────────────────────
 
   Future<List<Map<String, dynamic>>> getSiteMaps() async {
-    final res = await _client.get(
-      Uri.parse('$_rootUrl/api/map/sitemaps'),
-      headers: _headers,
-    );
+    final res = await _get('/api/map/sitemaps');
     if (res.statusCode == 200) {
       final j = jsonDecode(res.body);
       return (j['data'] as List).cast<Map<String, dynamic>>();
@@ -366,10 +404,7 @@ class ApiService {
   }
 
   Future<String?> getMapImageUrl() async {
-    final res = await _client.get(
-      Uri.parse('$_rootUrl/api/pdf/get-map'),
-      headers: _headers,
-    );
+    final res = await _get('/api/pdf/get-map');
     if (res.statusCode == 200) {
       final j = jsonDecode(res.body);
       if (j['success'] == true) return j['map_url'];
@@ -378,10 +413,7 @@ class ApiService {
   }
 
   Future<List<dynamic>> getMapStatus(int mapId) async {
-    final res = await _client.get(
-      Uri.parse('$_rootUrl/api/map/map-status/$mapId'),
-      headers: _headers,
-    );
+    final res = await _get('/api/map/map-status/$mapId');
     if (res.statusCode == 200) {
       final j = jsonDecode(res.body);
       return j['data'] as List;
@@ -390,10 +422,7 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> getReportDetail(int id) async {
-    final res = await _client.get(
-      Uri.parse('$_rootUrl/api/reports/$id'),
-      headers: _headers,
-    );
+    final res = await _get('/api/reports/$id');
     return jsonDecode(res.body)['data'];
   }
 
@@ -402,11 +431,7 @@ class ApiService {
     final body = <String, dynamic>{};
     if (date != null) body['date'] = date;
     if (trackerId != null) body['tracker_id'] = trackerId;
-    final res = await _client.post(
-      Uri.parse('$_rootUrl/api/reports/generate'),
-      headers: _headers,
-      body: jsonEncode(body),
-    );
+    final res = await _post('/api/reports/generate', body: jsonEncode(body));
     if (res.statusCode == 200) {
       return DailyReport.fromJson(jsonDecode(res.body)['data']);
     }
@@ -426,22 +451,14 @@ class ApiService {
 
     if (data['colors'] != null) {
       body['colors'] = data['colors'];
-      final res = await _client.put(
-        Uri.parse('$_rootUrl/api/admin/settings/colors'),
-        headers: _headers,
-        body: jsonEncode(body),
-      );
+      final res = await _put('/api/admin/settings/colors', body: jsonEncode(body));
       ok = ok && res.statusCode == 200;
       body.remove('colors');
     }
 
     if (data['names'] != null) {
       body['names'] = data['names'];
-      final res = await _client.put(
-        Uri.parse('$_rootUrl/api/admin/settings/names'),
-        headers: _headers,
-        body: jsonEncode(body),
-      );
+      final res = await _put('/api/admin/settings/names', body: jsonEncode(body));
       ok = ok && res.statusCode == 200;
       body.remove('names');
     }
@@ -450,28 +467,17 @@ class ApiService {
   }
 
   Future<bool> updateSiteArea(int areaId, Map<String, dynamic> data) async {
-    final res = await _client.put(
-      Uri.parse('$_rootUrl/api/map/area/$areaId'),
-      headers: _headers,
-      body: jsonEncode(data),
-    );
+    final res = await _put('/api/map/area/$areaId', body: jsonEncode(data));
     return res.statusCode == 200;
   }
 
   Future<bool> deleteSiteArea(int areaId) async {
-    final res = await _client.delete(
-      Uri.parse('$_rootUrl/api/map/area/$areaId'),
-      headers: _headers,
-    );
+    final res = await _delete('/api/map/area/$areaId');
     return res.statusCode == 200;
   }
 
   Future<Map<String, dynamic>?> createSiteArea(Map<String, dynamic> data) async {
-    final res = await _client.post(
-      Uri.parse('$_rootUrl/api/map/area'),
-      headers: _headers,
-      body: jsonEncode(data),
-    );
+    final res = await _post('/api/map/area', body: jsonEncode(data));
     if (res.statusCode == 201) {
       final j = jsonDecode(res.body);
       return j['data'] as Map<String, dynamic>?;
@@ -480,10 +486,7 @@ class ApiService {
   }
 
   Future<List<dynamic>> getUsers() async {
-    final res = await _client.get(
-      Uri.parse('$_rootUrl/api/auth/users'),
-      headers: _headers,
-    );
+    final res = await _get('/api/auth/users');
     if (res.statusCode == 200) {
       return (jsonDecode(res.body)['users'] as List?) ?? [];
     }
@@ -491,10 +494,7 @@ class ApiService {
   }
 
   Future<List<dynamic>> getAuditLogs({int limit = 250}) async {
-    final res = await _client.get(
-      Uri.parse('$_rootUrl/api/admin/audit-logs?limit=$limit'),
-      headers: _headers,
-    );
+    final res = await _get('/api/admin/audit-logs?limit=$limit');
     if (res.statusCode == 200) {
       return (jsonDecode(res.body)['data'] as List?) ?? [];
     }
@@ -503,11 +503,8 @@ class ApiService {
 
   Future<bool> updateUserRole(int userId, String role,
       {List<String> permissions = const []}) async {
-    final res = await _client.put(
-      Uri.parse('$_rootUrl/api/auth/users/$userId/role'),
-      headers: _headers,
-      body: jsonEncode({'role': role, 'permissions': permissions}),
-    );
+    final res = await _put('/api/auth/users/$userId/role',
+        body: jsonEncode({'role': role, 'permissions': permissions}));
     return res.statusCode == 200;
   }
 
@@ -524,34 +521,23 @@ class ApiService {
     String pin, {
     required String jobToken,
   }) async {
-    final res = await _client.post(
-      Uri.parse('$_rootUrl/api/auth/users'),
-      headers: _headers,
-      body: jsonEncode({
+    final res = await _post('/api/auth/users', body: jsonEncode({
         'name': name,
         'pin': pin,
         'job_token': jobToken,
-      }),
-    );
+      }));
     return _decodeJsonResponse(res, 'Create user');
   }
 
   Future<bool> resetUserPin(int userId, String pin) async {
-    final res = await _client.put(
-      Uri.parse('$_rootUrl/api/auth/users/$userId/pin'),
-      headers: _headers,
-      body: jsonEncode({'pin': pin}),
-    );
+    final res = await _put('/api/auth/users/$userId/pin', body: jsonEncode({'pin': pin}));
     return res.statusCode == 200;
   }
 
   // ── IFC ───────────────────────────────────────────────
 
   Future<Uint8List?> getIfcPdf(int blockId) async {
-    final res = await _client.get(
-      Uri.parse('$_rootUrl/api/tracker/power-blocks/$blockId/ifc'),
-      headers: _headers,
-    );
+    final res = await _get('/api/tracker/power-blocks/$blockId/ifc');
     if (res.statusCode == 200) {
       return res.bodyBytes;
     }

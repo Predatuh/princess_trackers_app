@@ -16,7 +16,7 @@ class AppState extends ChangeNotifier {
   static const String _cachedTrackerSettingsKey = 'cached_tracker_settings';
 
   final ApiService api = ApiService();
-  late final RealtimeSyncService _realtime;
+  RealtimeSyncService? _realtime;
 
   // Auth
   User? user;
@@ -59,13 +59,23 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
-    _realtime.disconnect();
+    _realtime?.disconnect();
     super.dispose();
+  }
+
+  void _ensureRealtimeClient() {
+    final nextBaseUrl = api.currentBaseUrl;
+    if (_realtime != null && _realtime!.baseUrl == nextBaseUrl) {
+      return;
+    }
+    _realtime?.disconnect();
+    _realtime = RealtimeSyncService(baseUrl: nextBaseUrl);
   }
 
   void _connectRealtimeIfReady() {
     if (user == null) return;
-    _realtime.connect(
+    _ensureRealtimeClient();
+    _realtime?.connect(
       onBlocksChanged: () {
         if (currentTracker != null && !isOffline) {
           loadBlocks();
@@ -515,7 +525,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> logout() async {
     await api.logout();
-    _realtime.disconnect();
+    _realtime?.disconnect();
     await _clearOfflineAuth();
     user = null;
     trackers = [];

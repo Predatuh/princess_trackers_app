@@ -1,5 +1,15 @@
 # Princess Trackers Release Notes
 
+## Version 1.0.4
+
+This hotfix hardens mobile connectivity by automatically failing over to the live Railway host whenever the configured custom domain returns a dead Railway edge alias.
+
+### Fixes
+
+- Added API host failover between the configured host, the live Railway hostname, and the custom domain hosts.
+- Realtime connections now rebuild against the active working API host after failover.
+- Bumped the mobile app version for the connectivity fallback update.
+
 ## Version 1.0.3
 
 This hotfix restores mobile connectivity by falling back to the live Railway hostname while the new custom domain is repaired.
