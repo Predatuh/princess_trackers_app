@@ -2,9 +2,30 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/app_models.dart';
+import '../models/power_block.dart';
 import '../services/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
+
+class _ReviewTarget {
+  final int lbdId;
+  final int powerBlockId;
+  final String powerBlockName;
+  final int powerBlockNumber;
+  final String label;
+  final String zone;
+  final String inventoryNumber;
+
+  const _ReviewTarget({
+    required this.lbdId,
+    required this.powerBlockId,
+    required this.powerBlockName,
+    required this.powerBlockNumber,
+    required this.label,
+    this.zone = '',
+    this.inventoryNumber = '',
+  });
+}
 
 class ReviewTab extends StatefulWidget {
   const ReviewTab({super.key});
@@ -21,7 +42,7 @@ class _ReviewTabState extends State<ReviewTab> {
   final Map<String, Map<String, dynamic>?> _reportDetails = {};
   bool _loading = true;
   bool _saving = false;
-  int? _selectedBlockId;
+  int? _selectedLbdId;
   String _selectedResult = 'fail';
   DateTime _selectedDate = DateTime.now();
   String? _selectedReportDate;
@@ -41,6 +62,39 @@ class _ReviewTabState extends State<ReviewTab> {
     super.dispose();
   }
 
+  String _lbdLabel(LbdItem lbd) {
+    if ((lbd.identifier ?? '').trim().isNotEmpty) return lbd.identifier!.trim();
+    if ((lbd.name ?? '').trim().isNotEmpty) return lbd.name!.trim();
+    return 'LBD ${lbd.id}';
+  }
+
+  List<_ReviewTarget> _buildTargets(List<PowerBlock> blocks) {
+    final targets = <_ReviewTarget>[];
+    for (final block in blocks) {
+      final lbds = [...block.lbds]
+        ..sort((left, right) => _lbdLabel(left).compareTo(_lbdLabel(right)));
+      for (final lbd in lbds) {
+        targets.add(
+          _ReviewTarget(
+            lbdId: lbd.id,
+            powerBlockId: block.id,
+            powerBlockName: block.name,
+            powerBlockNumber: block.powerBlockNumber,
+            label: _lbdLabel(lbd),
+            zone: block.zone ?? '',
+            inventoryNumber: lbd.inventoryNumber ?? '',
+          ),
+        );
+      }
+    }
+    targets.sort((left, right) {
+      final blockDiff = left.powerBlockNumber.compareTo(right.powerBlockNumber);
+      if (blockDiff != 0) return blockDiff;
+      return left.label.compareTo(right.label);
+    });
+    return targets;
+  }
+
   Future<void> _load() async {
     setState(() => _loading = true);
     final state = context.read<AppState>();
@@ -51,8 +105,9 @@ class _ReviewTabState extends State<ReviewTab> {
     _entries = await state.api.getReviews(date: _selectedDateIso, trackerId: trackerId);
     _reports = await state.api.getReviewReports(trackerId: trackerId);
     _reports.sort((left, right) => right.reportDate.compareTo(left.reportDate));
-    if (_selectedBlockId == null && state.blocks.isNotEmpty) {
-      _selectedBlockId = state.blocks.first.id;
+    final targets = _buildTargets(state.blocks);
+    if (_selectedLbdId == null || !targets.any((target) => target.lbdId == _selectedLbdId)) {
+      _selectedLbdId = targets.isEmpty ? null : targets.first.lbdId;
     }
     if (_selectedReportDate == null && _reports.isNotEmpty) {
       _selectedReportDate = _reports.first.reportDate;
@@ -70,9 +125,9 @@ class _ReviewTabState extends State<ReviewTab> {
     _reportDetails[reportDate] = await context.read<AppState>().api.getReviewReportByDate(reportDate, trackerId: trackerId);
   }
 
-  ReviewEntry? _latestEntryForBlock(int blockId) {
+  ReviewEntry? _latestEntryForLbd(int lbdId) {
     for (final entry in _entries) {
-      if (entry.powerBlockId == blockId) return entry;
+      if (entry.lbdId == lbdId) return entry;
     }
     return null;
   }
@@ -90,13 +145,13 @@ class _ReviewTabState extends State<ReviewTab> {
   }
 
   Future<void> _submitReview() async {
-    final state = context.read<AppState>();
-    final blockId = _selectedBlockId;
-    if (blockId == null) return;
+    final lbdId = _selectedLbdId;
+    if (lbdId == null) return;
 
     setState(() => _saving = true);
+    final state = context.read<AppState>();
     await state.api.submitReview(
-      powerBlockId: blockId,
+      lbdId: lbdId,
       reviewResult: _selectedResult,
       reviewDate: _selectedDateIso,
       notes: _notesController.text.trim(),
@@ -124,15 +179,24 @@ class _ReviewTabState extends State<ReviewTab> {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final blocks = state.blocks;
-    final selectedBlock = blocks.where((block) => block.id == _selectedBlockId).firstOrNull;
+    final targets = _buildTargets(blocks);
+    final selectedTarget = targets.where((target) => target.lbdId == _selectedLbdId).firstOrNull;
     final latestEntries = <int, ReviewEntry>{
-      for (final entry in _entries) entry.powerBlockId: entry,
+      for (final entry in _entries)
+        if (entry.lbdId > 0) entry.lbdId: entry,
     };
     final failingCount = latestEntries.values.where((entry) => entry.reviewResult == 'fail').length;
+    final selectedEntry = selectedTarget == null ? null : _latestEntryForLbd(selectedTarget.lbdId);
     final selectedReport = _selectedReportDate == null ? null : _reportDetails[_selectedReportDate!];
     final selectedReportData = selectedReport == null
         ? <String, dynamic>{}
         : Map<String, dynamic>.from(selectedReport['data'] as Map<String, dynamic>? ?? const {});
+    final failedReportItems = (selectedReportData['failed_lbds'] as List? ??
+            selectedReportData['failed_blocks'] as List? ??
+            const [])
+        .whereType<Map>()
+        .map((entry) => Map<String, dynamic>.from(entry))
+        .toList();
 
     if (_loading) {
       return const Center(child: CircularProgressIndicator(color: C.cyan, strokeWidth: 2));
@@ -154,7 +218,7 @@ class _ReviewTabState extends State<ReviewTab> {
                 Text('Quality Review', style: AppTheme.font(size: 18, weight: FontWeight.w700)),
                 const SizedBox(height: 6),
                 Text(
-                  'Run pass/fail quality walks separately from claim logging. Failed blocks stay on the review report until they pass a later check.',
+                  'Run pass/fail quality walks per LBD. Failed LBDs stay on the review report until they pass a later check.',
                   style: AppTheme.font(size: 12, color: C.textSub),
                 ),
                 const SizedBox(height: 16),
@@ -162,7 +226,7 @@ class _ReviewTabState extends State<ReviewTab> {
                   children: [
                     Expanded(child: _SummaryPill(label: 'Blocks', value: '${blocks.length}', color: C.cyan)),
                     const SizedBox(width: 10),
-                    Expanded(child: _SummaryPill(label: 'Reviews', value: '${_entries.length}', color: C.green)),
+                    Expanded(child: _SummaryPill(label: 'LBDs', value: '${targets.length}', color: C.green)),
                     const SizedBox(width: 10),
                     Expanded(child: _SummaryPill(label: 'Need Fixes', value: '$failingCount', color: C.gold)),
                   ],
@@ -194,23 +258,23 @@ class _ReviewTabState extends State<ReviewTab> {
             ),
           ),
           const SizedBox(height: 14),
-          Text('Power Blocks', style: AppTheme.font(size: 15, weight: FontWeight.w700)),
+          Text('Review LBDs', style: AppTheme.font(size: 15, weight: FontWeight.w700)),
           const SizedBox(height: 10),
-          if (blocks.isEmpty)
+          if (targets.isEmpty)
             GlassCard(
-              child: Text('No power blocks loaded for this tracker.', style: AppTheme.font(size: 13, color: C.textSub)),
+              child: Text('No LBDs loaded for this tracker.', style: AppTheme.font(size: 13, color: C.textSub)),
             )
           else
-            ...blocks.map((block) {
-              final latest = _latestEntryForBlock(block.id);
-              final isSelected = block.id == _selectedBlockId;
+            ...targets.map((target) {
+              final latest = _latestEntryForLbd(target.lbdId);
+              final isSelected = target.lbdId == _selectedLbdId;
               final tone = latest?.reviewResult == 'pass'
                   ? C.green
                   : latest?.reviewResult == 'fail'
                       ? C.gold
                       : C.cyan;
               return GestureDetector(
-                onTap: () => setState(() => _selectedBlockId = block.id),
+                onTap: () => setState(() => _selectedLbdId = target.lbdId),
                 child: Container(
                   margin: const EdgeInsets.only(bottom: 10),
                   padding: const EdgeInsets.all(16),
@@ -228,14 +292,19 @@ class _ReviewTabState extends State<ReviewTab> {
                           border: Border.all(color: tone.withValues(alpha: 0.28)),
                         ),
                         alignment: Alignment.center,
-                        child: Text('${block.powerBlockNumber}', style: AppTheme.displayFont(size: 14, color: tone)),
+                        child: Text('${target.powerBlockNumber}', style: AppTheme.displayFont(size: 14, color: tone)),
                       ),
                       const SizedBox(width: 14),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(block.name, style: AppTheme.font(size: 15, weight: FontWeight.w700)),
+                            Text(target.label, style: AppTheme.font(size: 15, weight: FontWeight.w700)),
+                            const SizedBox(height: 3),
+                            Text(
+                              '${target.powerBlockName}${target.zone.isNotEmpty ? ' · ${target.zone}' : ''}',
+                              style: AppTheme.font(size: 12, color: C.textSub),
+                            ),
                             const SizedBox(height: 3),
                             Text(
                               latest == null
@@ -252,7 +321,7 @@ class _ReviewTabState extends State<ReviewTab> {
               );
             }),
           const SizedBox(height: 8),
-          if (selectedBlock != null) ...[
+          if (selectedTarget != null) ...[
             Text('Selected Review', style: AppTheme.font(size: 15, weight: FontWeight.w700)),
             const SizedBox(height: 10),
             GlassCard(
@@ -261,11 +330,16 @@ class _ReviewTabState extends State<ReviewTab> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(selectedBlock.name, style: AppTheme.font(size: 16, weight: FontWeight.w700)),
+                  Text(selectedTarget.label, style: AppTheme.font(size: 16, weight: FontWeight.w700)),
                   const SizedBox(height: 4),
                   Text(
-                    _latestEntryForBlock(selectedBlock.id)?.notes.isNotEmpty == true
-                        ? _latestEntryForBlock(selectedBlock.id)!.notes
+                    '${selectedTarget.powerBlockName} · PB ${selectedTarget.powerBlockNumber}${selectedTarget.inventoryNumber.isNotEmpty ? ' · ${selectedTarget.inventoryNumber}' : ''}',
+                    style: AppTheme.font(size: 12, color: C.textSub),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    selectedEntry?.notes.isNotEmpty == true
+                        ? selectedEntry!.notes
                         : 'Add notes from the quality walk before saving.',
                     style: AppTheme.font(size: 12, color: C.textSub),
                   ),
@@ -328,7 +402,12 @@ class _ReviewTabState extends State<ReviewTab> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(entry.powerBlockName, style: AppTheme.font(size: 14, weight: FontWeight.w700)),
+                        Text(
+                          entry.reviewTargetLabel.isNotEmpty ? entry.reviewTargetLabel : entry.powerBlockName,
+                          style: AppTheme.font(size: 14, weight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(entry.powerBlockName, style: AppTheme.font(size: 12, color: C.textSub)),
                         const SizedBox(height: 4),
                         Text('${entry.reviewResult.toUpperCase()} · ${entry.reviewedBy}',
                             style: AppTheme.font(size: 12, color: C.textSub)),
@@ -369,7 +448,7 @@ class _ReviewTabState extends State<ReviewTab> {
                                 Text(report.reportDate, style: AppTheme.font(size: 14, weight: FontWeight.w700)),
                                 const SizedBox(height: 4),
                                 Text(
-                                  '${report.totalReviews} reviews · ${report.failCount} blocks need fixes',
+                                  '${report.totalReviews} reviews · ${report.failCount} LBDs need fixes',
                                   style: AppTheme.font(size: 12, color: C.textSub),
                                 ),
                               ],
@@ -389,41 +468,46 @@ class _ReviewTabState extends State<ReviewTab> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Blocks That Need Fixes', style: AppTheme.font(size: 15, weight: FontWeight.w700)),
+                    Text('LBDs That Need Fixes', style: AppTheme.font(size: 15, weight: FontWeight.w700)),
                     const SizedBox(height: 10),
-                    if ((selectedReportData['failed_blocks'] as List? ?? const []).isEmpty)
-                      Text('No failed blocks in this report.', style: AppTheme.font(size: 12, color: C.textSub))
+                    if (failedReportItems.isEmpty)
+                      Text('No failed LBDs in this report.', style: AppTheme.font(size: 12, color: C.textSub))
                     else
-                      ...((selectedReportData['failed_blocks'] as List? ?? const [])
-                          .whereType<Map>()
-                          .map((entry) => Padding(
-                                padding: const EdgeInsets.only(bottom: 10),
-                                child: Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(14),
-                                    color: C.gold.withValues(alpha: 0.10),
-                                    border: Border.all(color: C.gold.withValues(alpha: 0.22)),
+                      ...failedReportItems.map((entry) => Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(14),
+                                color: C.gold.withValues(alpha: 0.10),
+                                border: Border.all(color: C.gold.withValues(alpha: 0.22)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    entry['review_target_label']?.toString() ?? entry['lbd_identifier']?.toString() ?? entry['lbd_name']?.toString() ?? 'LBD',
+                                    style: AppTheme.font(size: 13, weight: FontWeight.w700),
                                   ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(entry['power_block_name']?.toString() ?? 'Power Block',
-                                          style: AppTheme.font(size: 13, weight: FontWeight.w700)),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        '${entry['reviewed_by'] ?? 'Unknown'} · ${entry['review_result'] ?? 'fail'}',
-                                        style: AppTheme.font(size: 11, color: C.textSub),
-                                      ),
-                                      if ((entry['notes']?.toString() ?? '').isNotEmpty) ...[
-                                        const SizedBox(height: 6),
-                                        Text(entry['notes'].toString(), style: AppTheme.font(size: 12, color: C.text)),
-                                      ],
-                                    ],
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    entry['power_block_name']?.toString() ?? 'Power Block',
+                                    style: AppTheme.font(size: 11, color: C.textSub),
                                   ),
-                                ),
-                              ))),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${entry['reviewed_by'] ?? 'Unknown'} · ${entry['review_result'] ?? 'fail'}',
+                                    style: AppTheme.font(size: 11, color: C.textSub),
+                                  ),
+                                  if ((entry['notes']?.toString() ?? '').isNotEmpty) ...[
+                                    const SizedBox(height: 6),
+                                    Text(entry['notes'].toString(), style: AppTheme.font(size: 12, color: C.text)),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          )),
                   ],
                 ),
               ),

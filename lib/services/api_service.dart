@@ -447,14 +447,14 @@ class ApiService {
   }
 
   Future<ReviewEntry?> submitReview({
-    required int powerBlockId,
+    required int lbdId,
     required String reviewResult,
     required String reviewDate,
     String? notes,
     int? trackerId,
   }) async {
     final body = <String, dynamic>{
-      'power_block_id': powerBlockId,
+      'lbd_id': lbdId,
       'review_result': reviewResult,
       'review_date': reviewDate,
       'notes': notes ?? '',

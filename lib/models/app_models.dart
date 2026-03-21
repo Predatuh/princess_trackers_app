@@ -129,6 +129,10 @@ class ReviewEntry {
   final int id;
   final int powerBlockId;
   final String powerBlockName;
+  final int lbdId;
+  final String lbdName;
+  final String lbdIdentifier;
+  final String reviewTargetLabel;
   final String reviewResult;
   final String reviewDate;
   final String reviewedBy;
@@ -139,6 +143,10 @@ class ReviewEntry {
     required this.id,
     required this.powerBlockId,
     required this.powerBlockName,
+    required this.lbdId,
+    this.lbdName = '',
+    this.lbdIdentifier = '',
+    this.reviewTargetLabel = '',
     required this.reviewResult,
     required this.reviewDate,
     required this.reviewedBy,
@@ -150,6 +158,10 @@ class ReviewEntry {
         id: j['id'] ?? 0,
         powerBlockId: j['power_block_id'] ?? 0,
         powerBlockName: j['power_block_name']?.toString() ?? '',
+      lbdId: j['lbd_id'] ?? 0,
+      lbdName: j['lbd_name']?.toString() ?? '',
+      lbdIdentifier: j['lbd_identifier']?.toString() ?? '',
+      reviewTargetLabel: j['review_target_label']?.toString() ?? '',
         reviewResult: j['review_result']?.toString() ?? 'fail',
         reviewDate: j['review_date']?.toString() ?? '',
         reviewedBy: j['reviewed_by']?.toString() ?? '',
