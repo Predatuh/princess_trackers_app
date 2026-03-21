@@ -299,7 +299,7 @@ class _ReviewTabState extends State<ReviewTab> {
                                   : () => setDialogState(() {
                                         selectedIds
                                           ..clear()
-                                          ..addAll(lbds.map((lbd) => lbd.id));
+                                          ..addAll(visibleLbds().map((lbd) => lbd.id));
                                       }),
                               child: const Text('Select All'),
                             ),
@@ -314,7 +314,7 @@ class _ReviewTabState extends State<ReviewTab> {
                             ),
                             FilledButton(
                               onPressed: saving || selectedIds.isEmpty ? null : () => applyResult('fail'),
-                              style: FilledButton.styleFrom(backgroundColor: C.gold, foregroundColor: const Color(0xFF231100)),
+                              style: FilledButton.styleFrom(backgroundColor: C.pink, foregroundColor: Colors.white),
                               child: Text(saving ? 'Applying...' : 'Fail Selected'),
                             ),
                             Text(
@@ -372,7 +372,7 @@ class _ReviewTabState extends State<ReviewTab> {
                                   final tone = current == 'pass'
                                       ? C.green
                                       : current == 'fail'
-                                          ? C.gold
+                                        ? C.pink
                                           : C.cyan;
                                   final status = current == 'pass'
                                       ? 'PASS'
@@ -501,7 +501,7 @@ class _ReviewTabState extends State<ReviewTab> {
                     const SizedBox(width: 10),
                     Expanded(child: _SummaryPill(label: 'LBDs', value: '${blocks.fold<int>(0, (sum, block) => sum + block.lbds.length)}', color: C.green)),
                     const SizedBox(width: 10),
-                    Expanded(child: _SummaryPill(label: 'Need Fixes', value: '$failingCount', color: C.gold)),
+                    Expanded(child: _SummaryPill(label: 'Need Fixes', value: '$failingCount', color: C.pink)),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -542,7 +542,7 @@ class _ReviewTabState extends State<ReviewTab> {
               final summary = _blockSummary(block);
               final isSelected = block.id == _selectedBlockId;
               final tone = summary.failCount > 0
-                  ? C.gold
+                  ? C.pink
                   : summary.total > 0 && summary.passCount == summary.total
                       ? C.green
                       : C.cyan;
@@ -610,7 +610,7 @@ class _ReviewTabState extends State<ReviewTab> {
                   padding: const EdgeInsets.only(bottom: 10),
                   child: GlassCard(
                     padding: const EdgeInsets.all(14),
-                    glowColor: entry.reviewResult == 'pass' ? C.green : C.gold,
+                    glowColor: entry.reviewResult == 'pass' ? C.green : C.pink,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -676,7 +676,7 @@ class _ReviewTabState extends State<ReviewTab> {
               const SizedBox(height: 8),
               GlassCard(
                 padding: const EdgeInsets.all(18),
-                glowColor: C.gold,
+                glowColor: C.pink,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -692,8 +692,8 @@ class _ReviewTabState extends State<ReviewTab> {
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(14),
-                                color: C.gold.withValues(alpha: 0.10),
-                                border: Border.all(color: C.gold.withValues(alpha: 0.22)),
+                                color: C.pink.withValues(alpha: 0.10),
+                                border: Border.all(color: C.pink.withValues(alpha: 0.22)),
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
