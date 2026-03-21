@@ -19,6 +19,29 @@ class ReportsTab extends StatefulWidget {
 class _ReportsTabState extends State<ReportsTab> {
   List<DailyReport> _reports = [];
   bool _loading = true;
+  bool _fixOnly = false;
+
+  List<DailyReport> get _visibleReports => _fixOnly
+      ? _reports.where((report) => report.fixEntryCount > 0).toList()
+      : _reports;
+
+  List<Map<String, dynamic>> _fixEntries(Map<String, dynamic> payload) {
+    return (payload['raw_entries'] as List? ?? const [])
+        .whereType<Map>()
+        .map((entry) => Map<String, dynamic>.from(entry))
+        .where((entry) => entry['task_type']?.toString() == 'fix')
+        .toList();
+  }
+
+  Map<String, List<String>> _groupFixEntriesByWorker(List<Map<String, dynamic>> entries) {
+    final grouped = <String, List<String>>{};
+    for (final entry in entries) {
+      final worker = entry['worker_name']?.toString() ?? 'Unknown';
+      final block = entry['power_block_name']?.toString() ?? 'Unknown';
+      grouped.putIfAbsent(worker, () => <String>[]).add(block);
+    }
+    return grouped;
+  }
 
   Widget _buildClaimScanPreview({
     required String imageUrl,
@@ -305,6 +328,24 @@ class _ReportsTabState extends State<ReportsTab> {
             ),
           ),
         ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Row(
+            children: [
+              ChoiceChip(
+                label: const Text('All Reports'),
+                selected: !_fixOnly,
+                onSelected: (_) => setState(() => _fixOnly = false),
+              ),
+              const SizedBox(width: 8),
+              ChoiceChip(
+                label: const Text('Fix Reports'),
+                selected: _fixOnly,
+                onSelected: (_) => setState(() => _fixOnly = true),
+              ),
+            ],
+          ),
+        ),
         const SizedBox(height: 8),
 
         // Report list
@@ -313,7 +354,7 @@ class _ReportsTabState extends State<ReportsTab> {
               ? const Center(
                   child: CircularProgressIndicator(
                       color: C.cyan, strokeWidth: 2))
-              : _reports.isEmpty
+              : _visibleReports.isEmpty
                   ? Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -321,7 +362,7 @@ class _ReportsTabState extends State<ReportsTab> {
                           Icon(Icons.insights_rounded,
                               color: C.textDim, size: 48),
                           const SizedBox(height: 12),
-                          Text('No reports yet',
+                          Text(_fixOnly ? 'No fix reports yet' : 'No reports yet',
                               style: AppTheme.font(color: C.textDim)),
                         ],
                       ),
@@ -333,9 +374,9 @@ class _ReportsTabState extends State<ReportsTab> {
                       child: ListView.builder(
                         padding:
                             const EdgeInsets.fromLTRB(16, 0, 16, 100),
-                        itemCount: _reports.length,
+                        itemCount: _visibleReports.length,
                         itemBuilder: (ctx, i) {
-                          final r = _reports[i];
+                          final r = _visibleReports[i];
                           final previewUrl = state.api.resolveMediaUrl(r.latestClaimScanImageUrl);
                           return GestureDetector(
                               onTap: () => _showDetail(r.id),
@@ -380,6 +421,9 @@ class _ReportsTabState extends State<ReportsTab> {
                                                   size: 12,
                                                   color:
                                                       C.textSub)),
+                                          const SizedBox(height: 6),
+                                          Text('${r.fixEntryCount} fix${r.fixEntryCount == 1 ? '' : 'es'} logged',
+                                            style: AppTheme.font(size: 11, color: C.gold)),
                                           if (r.claimScanCount > 0) ...[
                                             const SizedBox(height: 8),
                                             Wrap(
@@ -470,6 +514,8 @@ class _ReportsTabState extends State<ReportsTab> {
           .whereType<Map>()
           .map((entry) => Map<String, dynamic>.from(entry))
           .toList();
+        final fixEntries = _fixEntries(payload);
+        final fixByWorker = _groupFixEntriesByWorker(fixEntries);
 
         return DraggableScrollableSheet(
           expand: false,
@@ -498,7 +544,7 @@ class _ReportsTabState extends State<ReportsTab> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '$totalEntries entries · ${workerNames.length} workers',
+                  '$totalEntries entries · ${workerNames.length} workers · ${fixEntries.length} fixes',
                   style: AppTheme.font(size: 13, color: C.textSub),
                 ),
                 const SizedBox(height: 20),
@@ -535,6 +581,22 @@ class _ReportsTabState extends State<ReportsTab> {
                         ),
                       ),
                     ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: GlassCard(
+                        padding: const EdgeInsets.all(14),
+                        glowColor: C.gold,
+                        glowBlur: 16,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Fixes', style: AppTheme.font(size: 11, color: C.textSub)),
+                            const SizedBox(height: 4),
+                            Text('${fixEntries.length}', style: AppTheme.displayFont(size: 20, color: C.gold)),
+                          ],
+                        ),
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 14),
@@ -550,6 +612,43 @@ class _ReportsTabState extends State<ReportsTab> {
                   ),
                 ),
                 const SizedBox(height: 20),
+
+                if (fixEntries.isNotEmpty) ...[
+                  const SectionHeader(
+                      title: 'Fix Activity',
+                      icon: Icons.build_circle_rounded,
+                      color: C.gold),
+                  GlassCard(
+                    padding: const EdgeInsets.all(16),
+                    glowColor: C.gold,
+                    glowBlur: 14,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: fixByWorker.entries
+                          .map((entry) => Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    SizedBox(
+                                      width: 120,
+                                      child: Text(entry.key,
+                                          style: AppTheme.font(size: 12, weight: FontWeight.w700, color: C.gold)),
+                                    ),
+                                    Expanded(
+                                      child: Text(
+                                        entry.value.toSet().join(', '),
+                                        style: AppTheme.font(size: 12, color: C.textSub),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ))
+                          .toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
 
                 // By Task
                 if (byTask.isNotEmpty) ...[

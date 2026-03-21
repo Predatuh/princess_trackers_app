@@ -102,6 +102,7 @@ class DailyReport {
   final int id;
   final String reportDate;
   final Map<String, dynamic> data;
+  final int fixEntryCount;
   final int claimScanCount;
   final String? latestClaimScanImageUrl;
   final String? latestClaimScanPowerBlock;
@@ -110,6 +111,7 @@ class DailyReport {
     required this.id,
     required this.reportDate,
     this.data = const {},
+    this.fixEntryCount = 0,
     this.claimScanCount = 0,
     this.latestClaimScanImageUrl,
     this.latestClaimScanPowerBlock,
@@ -119,6 +121,7 @@ class DailyReport {
         id: j['id'],
         reportDate: j['report_date'] ?? '',
         data: j['data'] ?? {},
+        fixEntryCount: j['fix_entry_count'] ?? 0,
         claimScanCount: j['claim_scan_count'] ?? 0,
         latestClaimScanImageUrl: j['latest_claim_scan_image_url']?.toString(),
         latestClaimScanPowerBlock: j['latest_claim_scan_power_block']?.toString(),
