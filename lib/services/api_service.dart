@@ -467,6 +467,23 @@ class ApiService {
     return null;
   }
 
+  Future<List<ReviewEntry>> submitBulkReviews({
+    required List<Map<String, dynamic>> reviews,
+    required String reviewDate,
+    String? notes,
+    int? trackerId,
+  }) async {
+    final body = <String, dynamic>{
+      'reviews': reviews,
+      'review_date': reviewDate,
+      'notes': notes ?? '',
+    };
+    if (trackerId != null) body['tracker_id'] = trackerId;
+    final res = await _post('/api/reviews/bulk', body: jsonEncode(body));
+    final j = _decodeJsonResponse(res, 'Submit bulk reviews');
+    return (j['data'] as List).map((entry) => ReviewEntry.fromJson(entry)).toList();
+  }
+
   Future<List<ReviewReport>> getReviewReports({int? trackerId}) async {
     final suffix = trackerId != null ? '?tracker_id=$trackerId' : '';
     final res = await _get('/api/review-reports$suffix');

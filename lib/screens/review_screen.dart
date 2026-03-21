@@ -15,16 +15,11 @@ class ReviewTab extends StatefulWidget {
 }
 
 class _ReviewTabState extends State<ReviewTab> {
-  final TextEditingController _notesController = TextEditingController();
-
   List<ReviewEntry> _entries = [];
   List<ReviewReport> _reports = [];
   final Map<String, Map<String, dynamic>?> _reportDetails = {};
   bool _loading = true;
-  bool _saving = false;
   int? _selectedBlockId;
-  int? _selectedLbdId;
-  String _selectedResult = 'fail';
   DateTime _selectedDate = DateTime.now();
   String? _selectedReportDate;
 
@@ -39,7 +34,6 @@ class _ReviewTabState extends State<ReviewTab> {
 
   @override
   void dispose() {
-    _notesController.dispose();
     super.dispose();
   }
 
@@ -82,16 +76,10 @@ class _ReviewTabState extends State<ReviewTab> {
   void _ensureSelection(List<PowerBlock> blocks) {
     if (blocks.isEmpty) {
       _selectedBlockId = null;
-      _selectedLbdId = null;
       return;
     }
     if (_selectedBlockId == null || !blocks.any((block) => block.id == _selectedBlockId)) {
       _selectedBlockId = blocks.first.id;
-    }
-    final selectedBlock = blocks.firstWhere((block) => block.id == _selectedBlockId, orElse: () => blocks.first);
-    final lbds = _lbdsForBlock(selectedBlock);
-    if (_selectedLbdId == null || !lbds.any((lbd) => lbd.id == _selectedLbdId)) {
-      _selectedLbdId = lbds.isEmpty ? null : lbds.first.id;
     }
   }
 
@@ -134,26 +122,6 @@ class _ReviewTabState extends State<ReviewTab> {
     await _load();
   }
 
-  Future<void> _submitReview() async {
-    final lbdId = _selectedLbdId;
-    if (lbdId == null) return;
-
-    setState(() => _saving = true);
-    final state = context.read<AppState>();
-    await state.api.submitReview(
-      lbdId: lbdId,
-      reviewResult: _selectedResult,
-      reviewDate: _selectedDateIso,
-      notes: _notesController.text.trim(),
-      trackerId: state.currentTracker?.id,
-    );
-    _notesController.clear();
-    _reportDetails.clear();
-    await _load();
-    if (!mounted) return;
-    setState(() => _saving = false);
-  }
-
   Future<void> _generateReviewReport() async {
     final state = context.read<AppState>();
     await state.api.generateReviewReport(
@@ -165,21 +133,269 @@ class _ReviewTabState extends State<ReviewTab> {
     await _load();
   }
 
+  Future<void> _openBulkReviewDialog(PowerBlock block) async {
+    final state = context.read<AppState>();
+    final lbds = _lbdsForBlock(block);
+    final selectedIds = <int>{for (final lbd in lbds) lbd.id};
+    final draftResults = <int, String>{
+      for (final lbd in lbds)
+        if ((_latestEntryForLbd(lbd.id)?.reviewResult ?? '').isNotEmpty) lbd.id: _latestEntryForLbd(lbd.id)!.reviewResult,
+    };
+    final notesController = TextEditingController();
+    bool saving = false;
+
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: !saving,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              final navigator = Navigator.of(dialogContext);
+              final messenger = ScaffoldMessenger.of(this.context);
+
+              void applyResult(String result) {
+                setDialogState(() {
+                  for (final id in selectedIds) {
+                    draftResults[id] = result;
+                  }
+                });
+              }
+
+              final draftedCount = draftResults.length;
+              return Dialog(
+                insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
+                backgroundColor: Colors.transparent,
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 720, maxHeight: 760),
+                  decoration: AppTheme.glassDecoration(radius: 24).copyWith(
+                    color: const Color(0xFF0B1322).withValues(alpha: 0.96),
+                    border: Border.all(color: const Color(0x22FFFFFF)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Review Power Block',
+                                    style: AppTheme.font(size: 11, weight: FontWeight.w800, color: C.cyan).copyWith(letterSpacing: 1.2),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(block.name, style: AppTheme.font(size: 20, weight: FontWeight.w800)),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'PB ${block.powerBlockNumber}${(block.zone ?? '').isNotEmpty ? ' · ${block.zone}' : ''} · ${lbds.length} LBDs',
+                                    style: AppTheme.font(size: 12, color: C.textSub),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: saving ? null : () => navigator.pop(),
+                              icon: const Icon(Icons.close_rounded),
+                              color: C.text,
+                            ),
+                          ],
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            OutlinedButton(
+                              onPressed: saving
+                                  ? null
+                                  : () => setDialogState(() {
+                                        selectedIds
+                                          ..clear()
+                                          ..addAll(lbds.map((lbd) => lbd.id));
+                                      }),
+                              child: const Text('Select All'),
+                            ),
+                            OutlinedButton(
+                              onPressed: saving ? null : () => setDialogState(selectedIds.clear),
+                              child: const Text('Clear'),
+                            ),
+                            FilledButton(
+                              onPressed: saving || selectedIds.isEmpty ? null : () => applyResult('pass'),
+                              style: FilledButton.styleFrom(backgroundColor: C.green),
+                              child: const Text('Pass Selected'),
+                            ),
+                            FilledButton(
+                              onPressed: saving || selectedIds.isEmpty ? null : () => applyResult('fail'),
+                              style: FilledButton.styleFrom(backgroundColor: C.gold, foregroundColor: const Color(0xFF231100)),
+                              child: const Text('Fail Selected'),
+                            ),
+                            Text(
+                              '${selectedIds.length} selected · $draftedCount drafted',
+                              style: AppTheme.font(size: 12, color: C.textSub),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                        child: TextField(
+                          controller: notesController,
+                          maxLines: 3,
+                          decoration: const InputDecoration(hintText: 'Optional notes for these review changes'),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: lbds.isEmpty
+                            ? Center(child: Text('No LBDs found for this power block.', style: AppTheme.font(size: 12, color: C.textSub)))
+                            : ListView.builder(
+                                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                                itemCount: lbds.length,
+                                itemBuilder: (context, index) {
+                                  final lbd = lbds[index];
+                                  final latest = _latestEntryForLbd(lbd.id);
+                                  final drafted = draftResults[lbd.id];
+                                  final current = drafted ?? latest?.reviewResult;
+                                  final tone = current == 'pass'
+                                      ? C.green
+                                      : current == 'fail'
+                                          ? C.gold
+                                          : C.cyan;
+                                  final status = current == 'pass'
+                                      ? 'PASS'
+                                      : current == 'fail'
+                                          ? 'FAIL'
+                                          : 'PENDING';
+                                  return Container(
+                                    margin: const EdgeInsets.only(bottom: 10),
+                                    decoration: AppTheme.glassDecoration(radius: 16).copyWith(
+                                      border: Border.all(color: tone.withValues(alpha: 0.24)),
+                                      color: Colors.white.withValues(alpha: 0.03),
+                                    ),
+                                    child: CheckboxListTile(
+                                      value: selectedIds.contains(lbd.id),
+                                      activeColor: C.cyan,
+                                      controlAffinity: ListTileControlAffinity.leading,
+                                      onChanged: saving
+                                          ? null
+                                          : (checked) => setDialogState(() {
+                                                if (checked == true) {
+                                                  selectedIds.add(lbd.id);
+                                                } else {
+                                                  selectedIds.remove(lbd.id);
+                                                }
+                                              }),
+                                      title: Text(_lbdLabel(lbd), style: AppTheme.font(size: 14, weight: FontWeight.w700)),
+                                      subtitle: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          if ((lbd.inventoryNumber ?? '').isNotEmpty)
+                                            Text(lbd.inventoryNumber!, style: AppTheme.font(size: 11, color: C.textSub)),
+                                          Text(
+                                            latest == null ? 'Not reviewed on $_selectedDateIso' : '${latest.reviewResult.toUpperCase()} by ${latest.reviewedBy}',
+                                            style: AppTheme.font(size: 11, color: C.textSub),
+                                          ),
+                                        ],
+                                      ),
+                                      secondary: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                        decoration: BoxDecoration(
+                                          borderRadius: BorderRadius.circular(999),
+                                          color: tone.withValues(alpha: 0.14),
+                                          border: Border.all(color: tone.withValues(alpha: 0.22)),
+                                        ),
+                                        child: Text(status, style: AppTheme.font(size: 11, weight: FontWeight.w800, color: tone)),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: saving ? null : () => navigator.pop(),
+                                child: const Text('Cancel'),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: NeonButton(
+                                label: saving ? 'SAVING...' : 'SAVE DRAFTED REVIEWS',
+                                icon: Icons.verified_rounded,
+                                onPressed: saving || draftResults.isEmpty
+                                    ? null
+                                    : () async {
+                                        setDialogState(() => saving = true);
+                                        try {
+                                          await state.api.submitBulkReviews(
+                                            reviews: [
+                                              for (final entry in draftResults.entries)
+                                                {
+                                                  'lbd_id': entry.key,
+                                                  'review_result': entry.value,
+                                                }
+                                            ],
+                                            reviewDate: _selectedDateIso,
+                                            notes: notesController.text.trim(),
+                                            trackerId: state.currentTracker?.id,
+                                          );
+                                          _reportDetails.clear();
+                                          navigator.pop();
+                                          await _load();
+                                          if (!mounted) return;
+                                          messenger.showSnackBar(
+                                            const SnackBar(content: Text('Review updates saved.')),
+                                          );
+                                        } catch (error) {
+                                          if (!mounted) return;
+                                          setDialogState(() => saving = false);
+                                          messenger.showSnackBar(
+                                            SnackBar(content: Text('Review save failed: $error')),
+                                          );
+                                        }
+                                      },
+                                height: 48,
+                                gradientColors: const [C.green, Color(0xFF00A96C)],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      notesController.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final blocks = state.blocks;
     _ensureSelection(blocks);
-    final selectedBlock = blocks.where((block) => block.id == _selectedBlockId).firstOrNull;
-    final selectedLbd = selectedBlock == null
-        ? null
-        : _lbdsForBlock(selectedBlock).where((lbd) => lbd.id == _selectedLbdId).firstOrNull;
     final latestEntries = <int, ReviewEntry>{
       for (final entry in _entries)
         if (entry.lbdId > 0) entry.lbdId: entry,
     };
     final failingCount = latestEntries.values.where((entry) => entry.reviewResult == 'fail').length;
-    final selectedEntry = selectedLbd == null ? null : _latestEntryForLbd(selectedLbd.id);
     final selectedReport = _selectedReportDate == null ? null : _reportDetails[_selectedReportDate!];
     final selectedReportData = selectedReport == null
         ? <String, dynamic>{}
@@ -211,7 +427,7 @@ class _ReviewTabState extends State<ReviewTab> {
                 Text('Quality Review', style: AppTheme.font(size: 18, weight: FontWeight.w700)),
                 const SizedBox(height: 6),
                 Text(
-                  'Pick a power block, then review individual LBDs inside it. Failed LBDs stay on the report until they pass later.',
+                  'Open a power block in a popup, select multiple LBDs, bulk apply pass or fail, then save the full draft together.',
                   style: AppTheme.font(size: 12, color: C.textSub),
                 ),
                 const SizedBox(height: 16),
@@ -272,13 +488,10 @@ class _ReviewTabState extends State<ReviewTab> {
                       ? '${summary.passCount} passed'
                       : '${summary.pendingCount} pending';
               return GestureDetector(
-                onTap: () => setState(() {
-                  _selectedBlockId = block.id;
-                  final lbds = _lbdsForBlock(block);
-                  if (!lbds.any((lbd) => lbd.id == _selectedLbdId)) {
-                    _selectedLbdId = lbds.isEmpty ? null : lbds.first.id;
-                  }
-                }),
+                onTap: () async {
+                  setState(() => _selectedBlockId = block.id);
+                  await _openBulkReviewDialog(block);
+                },
                 child: Container(
                   margin: const EdgeInsets.only(bottom: 10),
                   padding: const EdgeInsets.all(16),
@@ -314,137 +527,13 @@ class _ReviewTabState extends State<ReviewTab> {
                           ],
                         ),
                       ),
+                      const SizedBox(width: 8),
+                      Icon(Icons.open_in_new_rounded, color: tone),
                     ],
                   ),
                 ),
               );
             }),
-          const SizedBox(height: 8),
-          if (selectedBlock != null) ...[
-            Text('Selected Review', style: AppTheme.font(size: 15, weight: FontWeight.w700)),
-            const SizedBox(height: 10),
-            GlassCard(
-              padding: const EdgeInsets.all(18),
-              glowColor: C.cyan,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(selectedBlock.name, style: AppTheme.font(size: 16, weight: FontWeight.w700)),
-                  const SizedBox(height: 4),
-                  Text(
-                    'PB ${selectedBlock.powerBlockNumber}${(selectedBlock.zone ?? '').isNotEmpty ? ' · ${selectedBlock.zone}' : ''} · ${selectedBlock.lbds.length} LBDs',
-                    style: AppTheme.font(size: 12, color: C.textSub),
-                  ),
-                  const SizedBox(height: 14),
-                  if (_lbdsForBlock(selectedBlock).isEmpty)
-                    Text('No LBDs found for this power block.', style: AppTheme.font(size: 12, color: C.textSub))
-                  else
-                    ..._lbdsForBlock(selectedBlock).map((lbd) {
-                      final latest = _latestEntryForLbd(lbd.id);
-                      final isSelected = lbd.id == _selectedLbdId;
-                      final tone = latest?.reviewResult == 'pass'
-                          ? C.green
-                          : latest?.reviewResult == 'fail'
-                              ? C.gold
-                              : C.cyan;
-                      final status = latest == null
-                          ? 'Not reviewed on $_selectedDateIso'
-                          : '${latest.reviewResult.toUpperCase()} by ${latest.reviewedBy}';
-                      return GestureDetector(
-                        onTap: () => setState(() => _selectedLbdId = lbd.id),
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 10),
-                          padding: const EdgeInsets.all(14),
-                          decoration: AppTheme.glassDecoration(radius: 14).copyWith(
-                            border: Border.all(color: isSelected ? tone.withValues(alpha: 0.45) : const Color(0x22FFFFFF)),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(_lbdLabel(lbd), style: AppTheme.font(size: 14, weight: FontWeight.w700)),
-                                  ),
-                                  if ((lbd.inventoryNumber ?? '').isNotEmpty)
-                                    Text(lbd.inventoryNumber!, style: AppTheme.font(size: 11, color: C.textSub)),
-                                ],
-                              ),
-                              const SizedBox(height: 4),
-                              Text(status, style: AppTheme.font(size: 12, color: C.textSub)),
-                            ],
-                          ),
-                        ),
-                      );
-                    }),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10),
-            GlassCard(
-              padding: const EdgeInsets.all(18),
-              glowColor: _selectedResult == 'pass' ? C.green : C.gold,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(selectedLbd != null ? _lbdLabel(selectedLbd) : 'No LBD selected', style: AppTheme.font(size: 16, weight: FontWeight.w700)),
-                  const SizedBox(height: 4),
-                  Text(
-                    selectedLbd != null
-                        ? '${selectedBlock.name} · PB ${selectedBlock.powerBlockNumber}${(selectedLbd.inventoryNumber ?? '').isNotEmpty ? ' · ${selectedLbd.inventoryNumber}' : ''}'
-                        : 'Select an LBD from the selected power block.',
-                    style: AppTheme.font(size: 12, color: C.textSub),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    selectedEntry?.notes.isNotEmpty == true
-                        ? selectedEntry!.notes
-                        : 'Add notes from the quality walk before saving.',
-                    style: AppTheme.font(size: 12, color: C.textSub),
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ChoiceChip(
-                          label: const Text('Pass'),
-                          selected: _selectedResult == 'pass',
-                          selectedColor: C.green.withValues(alpha: 0.18),
-                          onSelected: (_) => setState(() => _selectedResult = 'pass'),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: ChoiceChip(
-                          label: const Text('Fail'),
-                          selected: _selectedResult == 'fail',
-                          selectedColor: C.gold.withValues(alpha: 0.18),
-                          onSelected: (_) => setState(() => _selectedResult = 'fail'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _notesController,
-                    maxLines: 4,
-                    decoration: const InputDecoration(hintText: 'Review notes'),
-                  ),
-                  const SizedBox(height: 12),
-                  NeonButton(
-                    label: _saving ? 'SAVING...' : 'SAVE REVIEW',
-                    icon: Icons.verified_rounded,
-                    onPressed: _saving || selectedLbd == null ? null : _submitReview,
-                    height: 48,
-                    gradientColors: _selectedResult == 'pass'
-                        ? const [C.green, Color(0xFF00A96C)]
-                        : const [Color(0xFFFFD36A), Color(0xFFFF9A4A)],
-                    foregroundColor: _selectedResult == 'pass' ? Colors.white : const Color(0xFF231100),
-                  ),
-                ],
-              ),
-            ),
-          ],
           const SizedBox(height: 18),
           Text('Recent Review Activity', style: AppTheme.font(size: 15, weight: FontWeight.w700)),
           const SizedBox(height: 10),
