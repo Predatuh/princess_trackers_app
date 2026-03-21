@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/app_state.dart';
 import '../theme/app_theme.dart';
+import '../widgets/animated_logo_asset.dart';
 import '../widgets/common.dart';
 
 enum _AuthMode { signIn, register }
@@ -243,12 +244,12 @@ class _LoginScreenState extends State<LoginScreen>
                         width: 296,
                         height: 296,
                         alignment: Alignment.center,
-                        child: Image.asset(
-                          'assets/icon/icon.png',
-                          width: 296,
-                          height: 296,
+                        child: const AnimatedVideoAsset(
+                          assetPath: 'assets/animations/loading.mp4',
+                          fallbackAsset: 'assets/icon/icon.png',
                           fit: BoxFit.contain,
                           filterQuality: FilterQuality.high,
+                          loopWholeVideo: true,
                         ),
                       ),
                     ),
