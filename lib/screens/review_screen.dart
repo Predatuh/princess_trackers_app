@@ -132,12 +132,19 @@ class _ReviewTabState extends State<ReviewTab> {
 
   Future<void> _generateReviewReport() async {
     final state = context.read<AppState>();
-    await state.api.generateReviewReport(
+    final generated = await state.api.generateReviewReport(
       date: _selectedDateIso,
       trackerId: state.currentTracker?.id,
     );
+    if (generated != null) {
+      _reports = [
+        generated,
+        ..._reports.where((report) => report.reportDate != generated.reportDate),
+      ]..sort((left, right) => right.reportDate.compareTo(left.reportDate));
+    }
     _reportDetails.clear();
     _selectedReportDate = _selectedDateIso;
+    await _loadReportDetail(_selectedDateIso);
     await _load();
   }
 
