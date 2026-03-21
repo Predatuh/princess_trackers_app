@@ -7,26 +7,6 @@ import '../services/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 
-class _ReviewTarget {
-  final int lbdId;
-  final int powerBlockId;
-  final String powerBlockName;
-  final int powerBlockNumber;
-  final String label;
-  final String zone;
-  final String inventoryNumber;
-
-  const _ReviewTarget({
-    required this.lbdId,
-    required this.powerBlockId,
-    required this.powerBlockName,
-    required this.powerBlockNumber,
-    required this.label,
-    this.zone = '',
-    this.inventoryNumber = '',
-  });
-}
-
 class ReviewTab extends StatefulWidget {
   const ReviewTab({super.key});
 
@@ -42,6 +22,7 @@ class _ReviewTabState extends State<ReviewTab> {
   final Map<String, Map<String, dynamic>?> _reportDetails = {};
   bool _loading = true;
   bool _saving = false;
+  int? _selectedBlockId;
   int? _selectedLbdId;
   String _selectedResult = 'fail';
   DateTime _selectedDate = DateTime.now();
@@ -68,31 +49,50 @@ class _ReviewTabState extends State<ReviewTab> {
     return 'LBD ${lbd.id}';
   }
 
-  List<_ReviewTarget> _buildTargets(List<PowerBlock> blocks) {
-    final targets = <_ReviewTarget>[];
-    for (final block in blocks) {
-      final lbds = [...block.lbds]
-        ..sort((left, right) => _lbdLabel(left).compareTo(_lbdLabel(right)));
-      for (final lbd in lbds) {
-        targets.add(
-          _ReviewTarget(
-            lbdId: lbd.id,
-            powerBlockId: block.id,
-            powerBlockName: block.name,
-            powerBlockNumber: block.powerBlockNumber,
-            label: _lbdLabel(lbd),
-            zone: block.zone ?? '',
-            inventoryNumber: lbd.inventoryNumber ?? '',
-          ),
-        );
+  List<LbdItem> _lbdsForBlock(PowerBlock block) {
+    final lbds = [...block.lbds];
+    lbds.sort((left, right) => _lbdLabel(left).compareTo(_lbdLabel(right)));
+    return lbds;
+  }
+
+  ReviewEntry? _latestEntryForLbd(int lbdId) {
+    for (final entry in _entries) {
+      if (entry.lbdId == lbdId) return entry;
+    }
+    return null;
+  }
+
+  ({int passCount, int failCount, int pendingCount, int total}) _blockSummary(PowerBlock block) {
+    int passCount = 0;
+    int failCount = 0;
+    int pendingCount = 0;
+    for (final lbd in _lbdsForBlock(block)) {
+      final latest = _latestEntryForLbd(lbd.id);
+      if (latest == null) {
+        pendingCount += 1;
+      } else if (latest.reviewResult == 'pass') {
+        passCount += 1;
+      } else {
+        failCount += 1;
       }
     }
-    targets.sort((left, right) {
-      final blockDiff = left.powerBlockNumber.compareTo(right.powerBlockNumber);
-      if (blockDiff != 0) return blockDiff;
-      return left.label.compareTo(right.label);
-    });
-    return targets;
+    return (passCount: passCount, failCount: failCount, pendingCount: pendingCount, total: block.lbds.length);
+  }
+
+  void _ensureSelection(List<PowerBlock> blocks) {
+    if (blocks.isEmpty) {
+      _selectedBlockId = null;
+      _selectedLbdId = null;
+      return;
+    }
+    if (_selectedBlockId == null || !blocks.any((block) => block.id == _selectedBlockId)) {
+      _selectedBlockId = blocks.first.id;
+    }
+    final selectedBlock = blocks.firstWhere((block) => block.id == _selectedBlockId, orElse: () => blocks.first);
+    final lbds = _lbdsForBlock(selectedBlock);
+    if (_selectedLbdId == null || !lbds.any((lbd) => lbd.id == _selectedLbdId)) {
+      _selectedLbdId = lbds.isEmpty ? null : lbds.first.id;
+    }
   }
 
   Future<void> _load() async {
@@ -105,10 +105,7 @@ class _ReviewTabState extends State<ReviewTab> {
     _entries = await state.api.getReviews(date: _selectedDateIso, trackerId: trackerId);
     _reports = await state.api.getReviewReports(trackerId: trackerId);
     _reports.sort((left, right) => right.reportDate.compareTo(left.reportDate));
-    final targets = _buildTargets(state.blocks);
-    if (_selectedLbdId == null || !targets.any((target) => target.lbdId == _selectedLbdId)) {
-      _selectedLbdId = targets.isEmpty ? null : targets.first.lbdId;
-    }
+    _ensureSelection(state.blocks);
     if (_selectedReportDate == null && _reports.isNotEmpty) {
       _selectedReportDate = _reports.first.reportDate;
     }
@@ -123,13 +120,6 @@ class _ReviewTabState extends State<ReviewTab> {
     if (_reportDetails.containsKey(reportDate)) return;
     final trackerId = context.read<AppState>().currentTracker?.id;
     _reportDetails[reportDate] = await context.read<AppState>().api.getReviewReportByDate(reportDate, trackerId: trackerId);
-  }
-
-  ReviewEntry? _latestEntryForLbd(int lbdId) {
-    for (final entry in _entries) {
-      if (entry.lbdId == lbdId) return entry;
-    }
-    return null;
   }
 
   Future<void> _pickDate() async {
@@ -179,14 +169,17 @@ class _ReviewTabState extends State<ReviewTab> {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final blocks = state.blocks;
-    final targets = _buildTargets(blocks);
-    final selectedTarget = targets.where((target) => target.lbdId == _selectedLbdId).firstOrNull;
+    _ensureSelection(blocks);
+    final selectedBlock = blocks.where((block) => block.id == _selectedBlockId).firstOrNull;
+    final selectedLbd = selectedBlock == null
+        ? null
+        : _lbdsForBlock(selectedBlock).where((lbd) => lbd.id == _selectedLbdId).firstOrNull;
     final latestEntries = <int, ReviewEntry>{
       for (final entry in _entries)
         if (entry.lbdId > 0) entry.lbdId: entry,
     };
     final failingCount = latestEntries.values.where((entry) => entry.reviewResult == 'fail').length;
-    final selectedEntry = selectedTarget == null ? null : _latestEntryForLbd(selectedTarget.lbdId);
+    final selectedEntry = selectedLbd == null ? null : _latestEntryForLbd(selectedLbd.id);
     final selectedReport = _selectedReportDate == null ? null : _reportDetails[_selectedReportDate!];
     final selectedReportData = selectedReport == null
         ? <String, dynamic>{}
@@ -218,7 +211,7 @@ class _ReviewTabState extends State<ReviewTab> {
                 Text('Quality Review', style: AppTheme.font(size: 18, weight: FontWeight.w700)),
                 const SizedBox(height: 6),
                 Text(
-                  'Run pass/fail quality walks per LBD. Failed LBDs stay on the review report until they pass a later check.',
+                  'Pick a power block, then review individual LBDs inside it. Failed LBDs stay on the report until they pass later.',
                   style: AppTheme.font(size: 12, color: C.textSub),
                 ),
                 const SizedBox(height: 16),
@@ -226,7 +219,7 @@ class _ReviewTabState extends State<ReviewTab> {
                   children: [
                     Expanded(child: _SummaryPill(label: 'Blocks', value: '${blocks.length}', color: C.cyan)),
                     const SizedBox(width: 10),
-                    Expanded(child: _SummaryPill(label: 'LBDs', value: '${targets.length}', color: C.green)),
+                    Expanded(child: _SummaryPill(label: 'LBDs', value: '${blocks.fold<int>(0, (sum, block) => sum + block.lbds.length)}', color: C.green)),
                     const SizedBox(width: 10),
                     Expanded(child: _SummaryPill(label: 'Need Fixes', value: '$failingCount', color: C.gold)),
                   ],
@@ -258,23 +251,34 @@ class _ReviewTabState extends State<ReviewTab> {
             ),
           ),
           const SizedBox(height: 14),
-          Text('Review LBDs', style: AppTheme.font(size: 15, weight: FontWeight.w700)),
+          Text('Review Power Blocks', style: AppTheme.font(size: 15, weight: FontWeight.w700)),
           const SizedBox(height: 10),
-          if (targets.isEmpty)
+          if (blocks.isEmpty)
             GlassCard(
-              child: Text('No LBDs loaded for this tracker.', style: AppTheme.font(size: 13, color: C.textSub)),
+              child: Text('No power blocks loaded for this tracker.', style: AppTheme.font(size: 13, color: C.textSub)),
             )
           else
-            ...targets.map((target) {
-              final latest = _latestEntryForLbd(target.lbdId);
-              final isSelected = target.lbdId == _selectedLbdId;
-              final tone = latest?.reviewResult == 'pass'
-                  ? C.green
-                  : latest?.reviewResult == 'fail'
-                      ? C.gold
+            ...blocks.map((block) {
+              final summary = _blockSummary(block);
+              final isSelected = block.id == _selectedBlockId;
+              final tone = summary.failCount > 0
+                  ? C.gold
+                  : summary.total > 0 && summary.passCount == summary.total
+                      ? C.green
                       : C.cyan;
+              final subtitle = summary.failCount > 0
+                  ? '${summary.failCount} failed · ${summary.passCount} passed'
+                  : summary.total > 0 && summary.passCount == summary.total
+                      ? '${summary.passCount} passed'
+                      : '${summary.pendingCount} pending';
               return GestureDetector(
-                onTap: () => setState(() => _selectedLbdId = target.lbdId),
+                onTap: () => setState(() {
+                  _selectedBlockId = block.id;
+                  final lbds = _lbdsForBlock(block);
+                  if (!lbds.any((lbd) => lbd.id == _selectedLbdId)) {
+                    _selectedLbdId = lbds.isEmpty ? null : lbds.first.id;
+                  }
+                }),
                 child: Container(
                   margin: const EdgeInsets.only(bottom: 10),
                   padding: const EdgeInsets.all(16),
@@ -292,26 +296,21 @@ class _ReviewTabState extends State<ReviewTab> {
                           border: Border.all(color: tone.withValues(alpha: 0.28)),
                         ),
                         alignment: Alignment.center,
-                        child: Text('${target.powerBlockNumber}', style: AppTheme.displayFont(size: 14, color: tone)),
+                        child: Text('${block.powerBlockNumber}', style: AppTheme.displayFont(size: 14, color: tone)),
                       ),
                       const SizedBox(width: 14),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(target.label, style: AppTheme.font(size: 15, weight: FontWeight.w700)),
+                            Text(block.name, style: AppTheme.font(size: 15, weight: FontWeight.w700)),
                             const SizedBox(height: 3),
                             Text(
-                              '${target.powerBlockName}${target.zone.isNotEmpty ? ' · ${target.zone}' : ''}',
+                              '${block.lbds.length} LBDs${(block.zone ?? '').isNotEmpty ? ' · ${block.zone}' : ''}',
                               style: AppTheme.font(size: 12, color: C.textSub),
                             ),
                             const SizedBox(height: 3),
-                            Text(
-                              latest == null
-                                  ? 'Not reviewed on $_selectedDateIso'
-                                  : '${latest.reviewResult.toUpperCase()} by ${latest.reviewedBy}',
-                              style: AppTheme.font(size: 12, color: C.textSub),
-                            ),
+                            Text(subtitle, style: AppTheme.font(size: 12, color: C.textSub)),
                           ],
                         ),
                       ),
@@ -321,8 +320,66 @@ class _ReviewTabState extends State<ReviewTab> {
               );
             }),
           const SizedBox(height: 8),
-          if (selectedTarget != null) ...[
+          if (selectedBlock != null) ...[
             Text('Selected Review', style: AppTheme.font(size: 15, weight: FontWeight.w700)),
+            const SizedBox(height: 10),
+            GlassCard(
+              padding: const EdgeInsets.all(18),
+              glowColor: C.cyan,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(selectedBlock.name, style: AppTheme.font(size: 16, weight: FontWeight.w700)),
+                  const SizedBox(height: 4),
+                  Text(
+                    'PB ${selectedBlock.powerBlockNumber}${(selectedBlock.zone ?? '').isNotEmpty ? ' · ${selectedBlock.zone}' : ''} · ${selectedBlock.lbds.length} LBDs',
+                    style: AppTheme.font(size: 12, color: C.textSub),
+                  ),
+                  const SizedBox(height: 14),
+                  if (_lbdsForBlock(selectedBlock).isEmpty)
+                    Text('No LBDs found for this power block.', style: AppTheme.font(size: 12, color: C.textSub))
+                  else
+                    ..._lbdsForBlock(selectedBlock).map((lbd) {
+                      final latest = _latestEntryForLbd(lbd.id);
+                      final isSelected = lbd.id == _selectedLbdId;
+                      final tone = latest?.reviewResult == 'pass'
+                          ? C.green
+                          : latest?.reviewResult == 'fail'
+                              ? C.gold
+                              : C.cyan;
+                      final status = latest == null
+                          ? 'Not reviewed on $_selectedDateIso'
+                          : '${latest.reviewResult.toUpperCase()} by ${latest.reviewedBy}';
+                      return GestureDetector(
+                        onTap: () => setState(() => _selectedLbdId = lbd.id),
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.all(14),
+                          decoration: AppTheme.glassDecoration(radius: 14).copyWith(
+                            border: Border.all(color: isSelected ? tone.withValues(alpha: 0.45) : const Color(0x22FFFFFF)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(_lbdLabel(lbd), style: AppTheme.font(size: 14, weight: FontWeight.w700)),
+                                  ),
+                                  if ((lbd.inventoryNumber ?? '').isNotEmpty)
+                                    Text(lbd.inventoryNumber!, style: AppTheme.font(size: 11, color: C.textSub)),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(status, style: AppTheme.font(size: 12, color: C.textSub)),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                ],
+              ),
+            ),
             const SizedBox(height: 10),
             GlassCard(
               padding: const EdgeInsets.all(18),
@@ -330,10 +387,12 @@ class _ReviewTabState extends State<ReviewTab> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(selectedTarget.label, style: AppTheme.font(size: 16, weight: FontWeight.w700)),
+                  Text(selectedLbd != null ? _lbdLabel(selectedLbd) : 'No LBD selected', style: AppTheme.font(size: 16, weight: FontWeight.w700)),
                   const SizedBox(height: 4),
                   Text(
-                    '${selectedTarget.powerBlockName} · PB ${selectedTarget.powerBlockNumber}${selectedTarget.inventoryNumber.isNotEmpty ? ' · ${selectedTarget.inventoryNumber}' : ''}',
+                    selectedLbd != null
+                        ? '${selectedBlock.name} · PB ${selectedBlock.powerBlockNumber}${(selectedLbd.inventoryNumber ?? '').isNotEmpty ? ' · ${selectedLbd.inventoryNumber}' : ''}'
+                        : 'Select an LBD from the selected power block.',
                     style: AppTheme.font(size: 12, color: C.textSub),
                   ),
                   const SizedBox(height: 8),
@@ -375,7 +434,7 @@ class _ReviewTabState extends State<ReviewTab> {
                   NeonButton(
                     label: _saving ? 'SAVING...' : 'SAVE REVIEW',
                     icon: Icons.verified_rounded,
-                    onPressed: _saving ? null : _submitReview,
+                    onPressed: _saving || selectedLbd == null ? null : _submitReview,
                     height: 48,
                     gradientColors: _selectedResult == 'pass'
                         ? const [C.green, Color(0xFF00A96C)]
