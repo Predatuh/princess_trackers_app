@@ -243,8 +243,9 @@ class ApiService {
     return (j['data'] as List).map((b) => PowerBlock.fromJson(b)).toList();
   }
 
-  Future<PowerBlock> getPowerBlock(int id) async {
-    final res = await _get('/api/tracker/power-blocks/$id');
+  Future<PowerBlock> getPowerBlock(int id, {int? trackerId}) async {
+    final query = trackerId != null ? '?tracker_id=$trackerId' : '';
+    final res = await _get('/api/tracker/power-blocks/$id$query');
     return PowerBlock.fromJson(_decodeJsonResponse(res, 'Load power block')['data']);
   }
 

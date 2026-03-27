@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/app_state.dart';
 import '../models/power_block.dart';
+import '../models/tracker.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 
@@ -31,24 +32,27 @@ class _BlocksTabState extends State<BlocksTab> {
     super.dispose();
   }
 
-  double _blockProgress(PowerBlock block) {
+  double _blockProgress(PowerBlock block, Tracker? tracker) {
+    final completionStatus = tracker?.statusTypes.isNotEmpty == true
+        ? tracker!.statusTypes.last
+        : 'term';
     if (block.lbds.isEmpty) {
-      // Use lbdSummary when full lbd list not loaded
-      final termed = block.lbdSummary['term'] ?? 0;
-      return block.lbdCount > 0 ? termed / block.lbdCount : 0.0;
+      final completed = block.lbdSummary[completionStatus] ?? 0;
+      return block.lbdCount > 0 ? completed / block.lbdCount : 0.0;
     }
-    int termed = 0;
+    int completed = 0;
     for (final lbd in block.lbds) {
-      final isTermed = lbd.statuses
-          .where((s) => s.statusType == 'term' && s.isCompleted)
+      final isCompleted = lbd.statuses
+          .where((s) => s.statusType == completionStatus && s.isCompleted)
           .isNotEmpty;
-      if (isTermed) termed++;
+      if (isCompleted) completed++;
     }
-    return block.lbds.isNotEmpty ? termed / block.lbds.length : 0.0;
+    return block.lbds.isNotEmpty ? completed / block.lbds.length : 0.0;
   }
 
   List<PowerBlock> _applyFilters(List<PowerBlock> blocks) {
     var filtered = List<PowerBlock>.from(blocks);
+    final tracker = context.read<AppState>().currentTracker;
 
     // Search
     final query = _searchController.text.trim().toLowerCase();
@@ -60,10 +64,10 @@ class _BlocksTabState extends State<BlocksTab> {
 
     // Status filter
     if (_statusFilter == _StatusFilter.complete) {
-      filtered = filtered.where((b) => _blockProgress(b) >= 1.0).toList();
+      filtered = filtered.where((b) => _blockProgress(b, tracker) >= 1.0).toList();
     } else if (_statusFilter == _StatusFilter.inProgress) {
       filtered = filtered.where((b) {
-        final p = _blockProgress(b);
+        final p = _blockProgress(b, tracker);
         return p > 0.0 && p < 1.0;
       }).toList();
     }
@@ -481,8 +485,11 @@ class _BlockCard extends StatelessWidget {
     final tracker = state.currentTracker;
 
     // Term-only progress
-    final termed = block.lbdSummary['term'] ?? 0;
-    final pct = block.lbdCount > 0 ? termed / block.lbdCount : 0.0;
+    final completionStatus = tracker?.statusTypes.isNotEmpty == true
+      ? tracker!.statusTypes.last
+      : 'term';
+    final completed = block.lbdSummary[completionStatus] ?? 0;
+    final pct = block.lbdCount > 0 ? completed / block.lbdCount : 0.0;
 
     Color accentColor = C.cyan;
     if (tracker != null && block.lbdSummary.isNotEmpty) {

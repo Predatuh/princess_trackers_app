@@ -980,16 +980,18 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
     final fresh = state.blocks.where((b) => b.id == block.id).firstOrNull;
     if (fresh != null) block = fresh;
 
-    // Percentage based on termed LBDs only
-    int termedCount = 0;
+    final completionStatus = tracker?.statusTypes.isNotEmpty == true
+        ? tracker!.statusTypes.last
+        : 'term';
+    int completedCount = 0;
     final totalLbds = block.lbds.length;
     for (final lbd in block.lbds) {
-      final termed = lbd.statuses
-          .where((s) => s.statusType == 'term' && s.isCompleted)
+      final isCompleted = lbd.statuses
+          .where((s) => s.statusType == completionStatus && s.isCompleted)
           .isNotEmpty;
-      if (termed) termedCount++;
+      if (isCompleted) completedCount++;
     }
-    final pct = totalLbds > 0 ? termedCount / totalLbds : 0.0;
+    final pct = totalLbds > 0 ? completedCount / totalLbds : 0.0;
 
     return PopScope(
       canPop: _stagedClaims.isEmpty,

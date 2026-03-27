@@ -72,17 +72,27 @@ class PowerBlock {
     );
   }
 
-  bool get isClaimed => claimedPeople.isNotEmpty || claimedBy != null;
+  Set<int> get _visibleLbdIds => lbds.map((lbd) => lbd.id).where((id) => id > 0).toSet();
+
+  Map<String, List<int>> get visibleClaimAssignments {
+    final visibleIds = _visibleLbdIds;
+    if (visibleIds.isEmpty) return const {};
+    final filtered = <String, List<int>>{};
+    claimAssignments.forEach((statusType, ids) {
+      final visible = ids.where((id) => visibleIds.contains(id)).toList();
+      if (visible.isNotEmpty) {
+        filtered[statusType] = visible;
+      }
+    });
+    return filtered;
+  }
+
+  bool get isClaimed => visibleClaimAssignments.isNotEmpty;
 
   int get claimedLbdCount {
     final claimedIds = <int>{};
-    for (final ids in claimAssignments.values) {
+    for (final ids in visibleClaimAssignments.values) {
       claimedIds.addAll(ids.where((id) => id > 0));
-    }
-    for (final lbd in lbds) {
-      if (lbd.statuses.any((status) => status.isCompleted)) {
-        claimedIds.add(lbd.id);
-      }
     }
     return claimedIds.length;
   }
@@ -98,6 +108,7 @@ class PowerBlock {
   }
 
   String? get claimedLabel {
+    if (!isClaimed) return null;
     if (claimedPeople.isNotEmpty) return claimedPeople.join(', ');
     return claimedBy;
   }
