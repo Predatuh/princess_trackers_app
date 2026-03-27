@@ -1091,7 +1091,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                 Text(block.name,
                     style: AppTheme.font(size: 16, weight: FontWeight.w700)),
                 const SizedBox(height: 4),
-                Text('${(pct * 100).toInt()}% termed',
+                Text('${(pct * 100).toInt()}% ${state.getStatusName(completionStatus).toLowerCase()}',
                     style: AppTheme.font(size: 12, color: C.textSub)),
                 if (block.hasIfc) ...[
                   const SizedBox(height: 10),

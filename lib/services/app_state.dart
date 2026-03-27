@@ -28,6 +28,7 @@ class AppState extends ChangeNotifier {
   List<Tracker> trackers = [];
   Tracker? currentTracker;
   int selectedTab = 0;
+  bool claimTrackerSelectionRequired = false;
 
   // Settings (status colors / names from current tracker)
   Map<String, String> statusColors = {};
@@ -602,6 +603,7 @@ class AppState extends ChangeNotifier {
   Future<void> openTracker(Tracker t) async {
     final sameTracker = currentTracker?.id == t.id;
     _applyTrackerContext(t, useHubCache: true);
+    claimTrackerSelectionRequired = false;
     selectedTab = 1;
     notifyListeners();
     await _persistSelectedTracker(t.id);
@@ -616,9 +618,27 @@ class AppState extends ChangeNotifier {
     await loadBlocks(trackerId: tracker.id, showLoading: false);
   }
 
+  Future<void> selectTrackerForClaim(Tracker tracker) async {
+    final sameTracker = currentTracker?.id == tracker.id;
+    _applyTrackerContext(tracker, useHubCache: true);
+    claimTrackerSelectionRequired = false;
+    selectedTab = 3;
+    notifyListeners();
+    await _persistSelectedTracker(tracker.id);
+
+    if (!sameTracker || (allTrackerBlocks[tracker.id]?.isEmpty ?? true)) {
+      unawaited(_refreshTrackerData(tracker));
+    }
+  }
+
   void setSelectedTab(int index) {
-    if (selectedTab == index) return;
+    if (selectedTab == index && !(index == 3 && trackers.length > 1)) return;
     selectedTab = index;
+    if (index == 3 && trackers.length > 1) {
+      claimTrackerSelectionRequired = true;
+    } else if (index != 3) {
+      claimTrackerSelectionRequired = false;
+    }
     notifyListeners();
   }
 

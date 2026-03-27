@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/power_block.dart';
+import '../models/tracker.dart';
 import '../services/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
@@ -49,6 +50,11 @@ class _WorkLogTabState extends State<WorkLogTab> {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
+    if (state.claimTrackerSelectionRequired || state.currentTracker == null) {
+      final trackers = state.trackers.where((tracker) => tracker.isActive).toList()
+        ..sort((left, right) => left.displayName.compareTo(right.displayName));
+      return _ClaimTrackerPicker(trackers: trackers);
+    }
     final blocks = _applyFilters(state.blocks);
 
     if (state.isLoading && state.blocks.isEmpty) {
@@ -174,6 +180,83 @@ class _WorkLogTabState extends State<WorkLogTab> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ClaimTrackerPicker extends StatelessWidget {
+  final List<Tracker> trackers;
+
+  const _ClaimTrackerPicker({required this.trackers});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.read<AppState>();
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+      children: [
+        GlassCard(
+          padding: const EdgeInsets.all(18),
+          borderRadius: 18,
+          glowColor: C.cyan,
+          glowBlur: 16,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Choose Claim Tracker', style: AppTheme.font(size: 16, weight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              Text(
+                'Pick the tracker you want to claim in before opening any power block. Claiming no longer follows the last tracker you opened from the dashboard.',
+                style: AppTheme.font(size: 12, color: C.textSub),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        ...trackers.map((tracker) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: GestureDetector(
+                onTap: () => state.selectTrackerForClaim(tracker),
+                child: GlassCard(
+                  padding: const EdgeInsets.all(18),
+                  borderRadius: 18,
+                  glowColor: C.green,
+                  glowBlur: 14,
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 46,
+                        height: 46,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: C.green.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: C.green.withValues(alpha: 0.28)),
+                        ),
+                        child: Text(tracker.icon, style: const TextStyle(fontSize: 22)),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(tracker.displayName, style: AppTheme.font(size: 15, weight: FontWeight.w700)),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${tracker.itemNamePlural} · ${tracker.statusTypes.map((statusType) => tracker.statusNames[statusType] ?? statusType).join(' • ')}',
+                              style: AppTheme.font(size: 12, color: C.textSub),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right_rounded, color: C.textDim),
+                    ],
+                  ),
+                ),
+              ),
+            )),
+      ],
     );
   }
 }
