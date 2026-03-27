@@ -266,29 +266,55 @@ class _ClaimBlockCard extends StatelessWidget {
 
   const _ClaimBlockCard({required this.block});
 
+  int _completedLbdCount(PowerBlock block, Tracker? tracker) {
+    final completionStatus = tracker?.statusTypes.isNotEmpty == true
+        ? tracker!.statusTypes.last
+        : 'term';
+    if (block.lbds.isEmpty) {
+      return block.lbdSummary[completionStatus] ?? 0;
+    }
+    int completed = 0;
+    for (final lbd in block.lbds) {
+      final isCompleted = lbd.statuses.any(
+        (status) => status.statusType == completionStatus && status.isCompleted,
+      );
+      if (isCompleted) {
+        completed++;
+      }
+    }
+    return completed;
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.read<AppState>();
     final tracker = state.currentTracker;
     final isClaimed = block.isClaimed;
     final isFullyClaimed = block.isFullyClaimed;
-    final accentColor = isFullyClaimed
+    final completedLbdCount = _completedLbdCount(block, tracker);
+    final completionProgress = block.lbdCount > 0
+        ? (completedLbdCount / block.lbdCount).clamp(0.0, 1.0)
+        : 0.0;
+    final visualProgress = block.claimProgress > completionProgress ? block.claimProgress : completionProgress;
+    final isVisuallyComplete = isFullyClaimed || completionProgress >= 1.0;
+    final isVisuallyInProgress = !isVisuallyComplete && visualProgress > 0;
+    final accentColor = isVisuallyComplete
         ? C.green
-        : (isClaimed ? C.green : C.cyan);
+        : (isVisuallyInProgress ? C.green : C.cyan);
     final cardDecoration = BoxDecoration(
-      color: isFullyClaimed
+      color: isVisuallyComplete
           ? C.green.withValues(alpha: 0.14)
-          : (isClaimed ? C.green.withValues(alpha: 0.08) : const Color(0x12FFFFFF)),
+          : (isVisuallyInProgress ? C.green.withValues(alpha: 0.08) : const Color(0x12FFFFFF)),
       borderRadius: BorderRadius.circular(16),
       border: Border.all(
-        color: isFullyClaimed
+        color: isVisuallyComplete
             ? C.green.withValues(alpha: 0.38)
-            : (isClaimed ? C.green.withValues(alpha: 0.24) : C.cyan.withValues(alpha: 0.12)),
+            : (isVisuallyInProgress ? C.green.withValues(alpha: 0.24) : C.cyan.withValues(alpha: 0.12)),
       ),
       boxShadow: [
-        ...(isFullyClaimed
+        ...(isVisuallyComplete
             ? AppTheme.neonGlowStrong(C.green)
-            : (isClaimed
+            : (isVisuallyInProgress
                 ? AppTheme.neonGlow(C.green, blur: 22, opacity: 0.16)
                 : AppTheme.neonGlow(C.cyan, blur: 18, opacity: 0.10))),
         BoxShadow(
@@ -348,13 +374,19 @@ class _ClaimBlockCard extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(999),
-                    color: C.green.withValues(alpha: isFullyClaimed ? 0.18 : 0.12),
+                    color: C.green.withValues(alpha: isVisuallyComplete ? 0.18 : 0.12),
                     border: Border.all(
-                      color: C.green.withValues(alpha: isFullyClaimed ? 0.32 : 0.22),
+                      color: C.green.withValues(alpha: isVisuallyComplete ? 0.32 : 0.22),
                     ),
                   ),
                   child: Text(
-                    isFullyClaimed ? '100% Claimed' : (isClaimed ? 'Claim In Progress' : 'Add Claim'),
+                    isFullyClaimed
+                        ? '100% Claimed'
+                      : (isVisuallyComplete
+                        ? '100% Complete'
+                        : (isClaimed
+                          ? 'Claim In Progress'
+                          : (isVisuallyInProgress ? 'In Progress' : 'Add Claim'))),
                     style: AppTheme.font(
                       size: 11,
                       weight: FontWeight.w700,
@@ -368,7 +400,7 @@ class _ClaimBlockCard extends StatelessWidget {
             ClipRRect(
               borderRadius: BorderRadius.circular(999),
               child: LinearProgressIndicator(
-                value: block.claimProgress,
+                value: visualProgress,
                 minHeight: 6,
                 backgroundColor: C.surfaceLight.withValues(alpha: 0.8),
                 valueColor: AlwaysStoppedAnimation<Color>(accentColor),
@@ -378,8 +410,12 @@ class _ClaimBlockCard extends StatelessWidget {
             Text(
               isFullyClaimed
                   ? 'All ${block.lbdCount} ${tracker?.itemNamePlural ?? 'items'} claimed on this block'
-                  : '${block.claimedLbdCount}/${block.lbdCount} ${tracker?.itemNamePlural ?? 'items'} claimed',
-              style: AppTheme.font(size: 12, color: isClaimed ? C.green : C.textSub),
+                  : (isVisuallyComplete
+                      ? '${completedLbdCount}/${block.lbdCount} ${tracker?.itemNamePlural ?? 'items'} complete'
+                      : (isClaimed
+                      ? '${block.claimedLbdCount}/${block.lbdCount} ${tracker?.itemNamePlural ?? 'items'} claimed'
+                      : '${completedLbdCount}/${block.lbdCount} ${tracker?.itemNamePlural ?? 'items'} complete')),
+              style: AppTheme.font(size: 12, color: (isClaimed || isVisuallyInProgress || isVisuallyComplete) ? C.green : C.textSub),
             ),
             if (isClaimed) ...[
               const SizedBox(height: 10),
