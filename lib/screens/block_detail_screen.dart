@@ -29,6 +29,13 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
     return 'LBD ${lbd.id}';
   }
 
+  String _todayIsoDate() {
+    final now = DateTime.now();
+    final month = now.month.toString().padLeft(2, '0');
+    final day = now.day.toString().padLeft(2, '0');
+    return '${now.year}-$month-$day';
+  }
+
   Map<String, List<int>> _normalizeAssignments(dynamic raw) {
     if (raw is! Map) return {};
     final normalized = <String, List<int>>{};
@@ -87,21 +94,21 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
     final crewOptions = <String>[...suggestions];
 
     // Current claim editor state
-    var currentCrew = <String>{...block.claimedPeople};
+    var currentCrew = <String>{};
     var currentAssignments = initialAssignments.isNotEmpty
         ? initialAssignments
-        : _normalizeAssignments(block.claimAssignments);
+      : <String, List<int>>{};
     var currentTaskTypes = initialTaskTypes.isNotEmpty
         ? initialTaskTypes
-        : <String>[
-            for (final st in availableTaskTypes)
-              if (currentAssignments.containsKey(st)) st,
-          ];
+      : <String>[];
     Map<String, dynamic>? currentScanDraft = initialDraft;
     var isScanning = false;
     String? scanError;
     String? validationError;
     var currentTaskIndex = 0;
+    var claimWorkDate = ((initialDraft?['work_date']?.toString() ?? '').split('T').first.trim().isNotEmpty)
+      ? (initialDraft?['work_date']?.toString() ?? '').split('T').first.trim()
+      : _todayIsoDate();
 
     if (currentCrew.isEmpty && state.user?.name != null) {
       currentCrew.add(state.user!.name);
@@ -188,6 +195,10 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                 final parsedAssignments = _normalizeAssignments(draft['assignments']);
                 setModalState(() {
                   currentScanDraft = draft;
+                  final draftWorkDate = (draft['work_date']?.toString() ?? '').split('T').first.trim();
+                  if (draftWorkDate.isNotEmpty) {
+                    claimWorkDate = draftWorkDate;
+                  }
                   if (parsedAssignments.isNotEmpty) {
                     currentAssignments
                       ..clear()
@@ -263,6 +274,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                     statusType: List<int>.from(currentAssignments[statusType] ?? const <int>[]),
                 },
                 'scanDraft': currentScanDraft,
+                'workDate': claimWorkDate,
               };
             }
 
@@ -275,9 +287,32 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
               scanError = null;
               validationError = null;
               currentTaskIndex = 0;
+              claimWorkDate = _todayIsoDate();
               if (state.user?.name != null) {
                 currentCrew.add(state.user!.name);
               }
+            }
+
+            Future<void> pickWorkDate() async {
+              final initialDate = DateTime.tryParse(claimWorkDate) ?? DateTime.now();
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: initialDate,
+                firstDate: DateTime(2020),
+                lastDate: DateTime.now().add(const Duration(days: 365)),
+              );
+              if (picked == null) return;
+              final month = picked.month.toString().padLeft(2, '0');
+              final day = picked.day.toString().padLeft(2, '0');
+              setModalState(() {
+                claimWorkDate = '${picked.year}-$month-$day';
+                if (currentScanDraft != null) {
+                  currentScanDraft = {
+                    ...currentScanDraft!,
+                    'work_date': claimWorkDate,
+                  };
+                }
+              });
             }
 
             void stageClaim({required bool closeDialog}) {
@@ -505,7 +540,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
             return AlertDialog(
               backgroundColor: C.surface,
               title: Text(
-                'Claim ${block.name}',
+                'Add Claim for ${block.name}',
                 style: AppTheme.font(size: 18, weight: FontWeight.w700),
               ),
               content: SizedBox(
@@ -516,7 +551,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Pick crew, choose tasks and exact LBDs. Add Crew keeps this window open so you can keep claiming the same block.',
+                        'Pick the crew for this claim, choose the exact date, then select tasks and LBDs. Add Claim keeps this window open so you can stage another claim on the same block.',
                         style: AppTheme.font(size: 12, color: C.textSub),
                       ),
                       // Show previously staged claims
@@ -543,7 +578,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    '${ppl.join(", ")} \u2192 ${asgn.keys.map((k) => state.getStatusName(k)).join(", ")}',
+                                    '${claim['work_date'] ?? 'Today'} • ${ppl.join(", ")} \u2192 ${asgn.keys.map((k) => state.getStatusName(k)).join(", ")}',
                                     style: AppTheme.font(size: 12, color: C.text),
                                   ),
                                 ),
@@ -603,6 +638,23 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                           hintStyle: AppTheme.font(size: 12, color: C.textDim),
                         ),
                       ),
+                      const SizedBox(height: 14),
+                      Text(
+                        'Claim Date',
+                        style: AppTheme.font(size: 14, weight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: pickWorkDate,
+                          icon: const Icon(Icons.calendar_today_rounded, size: 18),
+                          label: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(claimWorkDate),
+                          ),
+                        ),
+                      ),
                       const SizedBox(height: 18),
                       buildTaskSelector(),
                       const SizedBox(height: 16),
@@ -660,7 +712,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'Date: ${currentScanDraft!['work_date'] ?? 'Today'}',
+                                'Date: ${currentScanDraft!['work_date'] ?? claimWorkDate}',
                                 style: AppTheme.font(size: 12, color: C.text),
                               ),
                               Text(
@@ -688,6 +740,11 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                       Text(
                         'Current Selection',
                         style: AppTheme.font(size: 14, weight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Claim date: $claimWorkDate',
+                        style: AppTheme.font(size: 12, color: C.textSub),
                       ),
                       const SizedBox(height: 8),
                       Container(
@@ -744,7 +801,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                 ),
                 OutlinedButton(
                   onPressed: () => stageClaim(closeDialog: false),
-                  child: const Text('Add Crew'),
+                  child: const Text('Add Claim'),
                 ),
                 ElevatedButton(
                   onPressed: () => stageClaim(closeDialog: true),
@@ -774,7 +831,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
       final claim = _stagedClaims[i];
       final people = List<String>.from(claim['people'] ?? []);
       final claimAssignments = _normalizeAssignments(claim['assignments']);
-      summaryLines.add('Claim ${i + 1}: ${people.join(", ")}');
+      summaryLines.add('Claim ${i + 1} (${claim['work_date'] ?? 'Today'}): ${people.join(", ")}');
       for (final entry in claimAssignments.entries) {
         final taskName = state.getStatusName(entry.key);
         final lbdNames = block.lbds
@@ -1108,7 +1165,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                       ElevatedButton.icon(
                         onPressed: () => _showClaimDialog(state),
                         icon: const Icon(Icons.people_alt_rounded, size: 18),
-                        label: const Text('Claim Block'),
+                        label: const Text('Add Claim'),
                       ),
                       if (_stagedClaims.isNotEmpty)
                         ElevatedButton.icon(

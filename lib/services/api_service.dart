@@ -276,12 +276,19 @@ class ApiService {
   Future<bool> claimBlock(int blockId,
       {bool claim = true,
       List<String> people = const [],
-      Map<String, List<int>> assignments = const {}}) async {
+      Map<String, List<int>> assignments = const {},
+      int? trackerId,
+      String? workDate}) async {
+    final body = <String, dynamic>{
+      'action': claim ? 'claim' : 'unclaim',
+      'actor_name': currentUser?.name,
+      'people': people,
+      'assignments': assignments,
+    };
+    if (trackerId != null) body['tracker_id'] = trackerId;
+    if (workDate != null && workDate.trim().isNotEmpty) body['work_date'] = workDate.trim();
     final res = await _post('/api/tracker/power-blocks/$blockId/claim', body: jsonEncode({
-        'action': claim ? 'claim' : 'unclaim',
-        'actor_name': currentUser?.name,
-        'people': people,
-        'assignments': assignments,
+        ...body,
       }));
     return res.statusCode == 200;
   }
@@ -310,14 +317,19 @@ class ApiService {
     required Map<String, List<int>> assignments,
     required Map<String, dynamic> draft,
     int? trackerId,
+    String? workDate,
   }) async {
+    final body = <String, dynamic>{
+      'power_block_id': blockId,
+      'tracker_id': trackerId,
+      'actor_name': currentUser?.name,
+      'people': people,
+      'assignments': assignments,
+      'draft': draft,
+    };
+    if (workDate != null && workDate.trim().isNotEmpty) body['work_date'] = workDate.trim();
     final res = await _post('/api/reports/claim-scan/submit', body: jsonEncode({
-        'power_block_id': blockId,
-        'tracker_id': trackerId,
-        'actor_name': currentUser?.name,
-        'people': people,
-        'assignments': assignments,
-        'draft': draft,
+        ...body,
       }));
     if (res.statusCode == 404) {
       throw Exception('Claim sheet upload is not available on this server yet.');

@@ -242,7 +242,7 @@ class _ClaimBlockCard extends StatelessWidget {
                     ),
                   ),
                   child: Text(
-                    block.isClaimed ? 'Edit Claim' : 'Claim',
+                    'Add Claim',
                     style: AppTheme.font(
                       size: 11,
                       weight: FontWeight.w700,

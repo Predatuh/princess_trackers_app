@@ -20,6 +20,12 @@ class _ReportsTabState extends State<ReportsTab> {
   List<DailyReport> _reports = [];
   bool _loading = true;
 
+  int _intValue(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -85,6 +91,8 @@ class _ReportsTabState extends State<ReportsTab> {
     final workers = (payload['worker_names'] as List? ?? const [])
         .map((entry) => entry.toString())
         .toList();
+    final totalAssignments = _intValue(payload['assignment_count']);
+    final totalLbds = _intValue(payload['total_lbd_count']);
 
     final doc = pw.Document();
     final titleStyle = pw.TextStyle(
@@ -146,6 +154,14 @@ class _ReportsTabState extends State<ReportsTab> {
               pw.Expanded(child: statCard('Power Blocks', '${byPowerBlock.length}')),
             ],
           ),
+          pw.SizedBox(height: 10),
+          pw.Row(
+            children: [
+              pw.Expanded(child: statCard('Assignments', '$totalAssignments')),
+              pw.SizedBox(width: 10),
+              pw.Expanded(child: statCard('LBDs Claimed', '$totalLbds')),
+            ],
+          ),
           if (byPowerBlock.isNotEmpty) ...[
             pw.SizedBox(height: 22),
             pw.Text('Work By Power Block', style: sectionStyle),
@@ -205,13 +221,14 @@ class _ReportsTabState extends State<ReportsTab> {
               headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10),
               cellStyle: const pw.TextStyle(fontSize: 9),
               cellAlignment: pw.Alignment.centerLeft,
-              headers: const ['Worker', 'Task', 'Power Block', 'Date', 'Logged By'],
+              headers: const ['Worker', 'Task', 'Power Block', 'Date', 'LBDs', 'Logged By'],
               data: rawEntries
                   .map((entry) => [
                         entry['worker_name']?.toString() ?? '',
                         entry['task_type']?.toString() ?? '',
                         entry['power_block_name']?.toString() ?? '',
                         entry['work_date']?.toString() ?? '',
+                        '${_intValue(entry['assignment_count'] ?? entry['total_lbd_count'])}',
                         entry['logged_by']?.toString() ?? '',
                       ])
                   .toList(),
@@ -282,6 +299,8 @@ class _ReportsTabState extends State<ReportsTab> {
             .whereType<Map>()
             .map((entry) => Map<String, dynamic>.from(entry))
             .toList();
+        final totalAssignments = _intValue(payload['assignment_count'] ?? detail['assignment_count']);
+        final totalLbds = _intValue(payload['total_lbd_count'] ?? detail['total_lbd_count']);
 
         return DraggableScrollableSheet(
           expand: false,
@@ -307,7 +326,7 @@ class _ReportsTabState extends State<ReportsTab> {
                     style: AppTheme.font(size: 20, weight: FontWeight.w700)),
                 const SizedBox(height: 6),
                 Text(
-                  '$totalEntries entries · ${workerNames.length} workers · ${claimScans.length} claim scans',
+                  '$totalEntries entries · ${workerNames.length} workers · $totalAssignments assignments · $totalLbds LBDs · ${claimScans.length} claim scans',
                   style: AppTheme.font(size: 13, color: C.textSub),
                 ),
                 const SizedBox(height: 20),
@@ -442,6 +461,11 @@ class _ReportsTabState extends State<ReportsTab> {
                                   style: AppTheme.font(size: 12, color: C.textSub)),
                               const SizedBox(height: 4),
                               Text(
+                                '${_intValue(entry['assignment_count'] ?? entry['total_lbd_count'])} LBDs',
+                                style: AppTheme.font(size: 11, color: C.cyan),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
                                 'Logged by ${entry['logged_by'] ?? 'Unknown'} on ${entry['work_date'] ?? ''}',
                                 style: AppTheme.font(size: 11, color: C.textDim),
                               ),
@@ -547,7 +571,7 @@ class _ReportsTabState extends State<ReportsTab> {
                                         Text(report.reportDate, style: AppTheme.font(size: 16, weight: FontWeight.w700)),
                                         const SizedBox(height: 2),
                                         Text(
-                                          '${report.data['total_entries'] ?? 0} updates captured for the day',
+                                          '${report.data['total_entries'] ?? 0} updates · ${_intValue(report.data['assignment_count'])} assignments · ${_intValue(report.data['total_lbd_count'])} LBDs',
                                           style: AppTheme.font(size: 12, color: C.textSub),
                                         ),
                                         if (report.claimScanCount > 0) ...[

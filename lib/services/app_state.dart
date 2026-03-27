@@ -126,6 +126,8 @@ class AppState extends ChangeNotifier {
                 ),
               ),
             ),
+            trackerId: item['trackerId'] as int?,
+            workDate: item['workDate']?.toString(),
           );
         } else if (type == 'claim_scan') {
           await api.submitClaimScan(
@@ -141,6 +143,7 @@ class AppState extends ChangeNotifier {
             ),
             draft: Map<String, dynamic>.from(item['draft'] as Map? ?? const {}),
             trackerId: item['trackerId'] as int?,
+            workDate: item['workDate']?.toString(),
           );
         } else {
           await api.updateLbdStatus(
@@ -791,22 +794,66 @@ class AppState extends ChangeNotifier {
       {required String? claimedBy,
       required List<String> claimedPeople,
       required Map<String, List<int>> claimAssignments,
-      required String? claimedAt}) {
+      required String? claimedAt,
+      bool merge = true}) {
     blocks = blocks.map((block) {
       if (block.id != blockId) return block;
+      final nextPeople = merge
+          ? _mergeClaimPeople(block.claimedPeople, claimedPeople)
+          : List<String>.from(claimedPeople);
+      final nextAssignments = merge
+          ? _mergeClaimAssignments(block.claimAssignments, claimAssignments)
+          : _mergeClaimAssignments(const <String, List<int>>{}, claimAssignments);
       return block.copyWith(
-        claimedBy: claimedBy,
-        claimedPeople: claimedPeople,
-        claimAssignments: claimAssignments,
+        claimedBy: claimedBy ?? (merge ? block.claimedBy : null),
+        claimedPeople: nextPeople,
+        claimAssignments: nextAssignments,
         claimedAt: claimedAt,
       );
     }).toList();
     _syncCurrentTrackerBlocks();
   }
 
+  List<String> _mergeClaimPeople(List<String> existing, List<String> incoming) {
+    final merged = <String>[];
+    final seen = <String>{};
+    for (final person in [...existing, ...incoming]) {
+      final name = person.trim();
+      if (name.isEmpty) continue;
+      final key = name.toLowerCase();
+      if (!seen.add(key)) continue;
+      merged.add(name);
+    }
+    return merged;
+  }
+
+  Map<String, List<int>> _mergeClaimAssignments(
+    Map<String, List<int>> existing,
+    Map<String, List<int>> incoming,
+  ) {
+    final merged = <String, Set<int>>{};
+
+    void addAll(Map<String, List<int>> source) {
+      source.forEach((statusType, ids) {
+        final normalizedIds = ids.where((id) => id > 0).toSet();
+        if (normalizedIds.isEmpty) return;
+        merged.putIfAbsent(statusType, () => <int>{}).addAll(normalizedIds);
+      });
+    }
+
+    addAll(existing);
+    addAll(incoming);
+
+    return {
+      for (final entry in merged.entries)
+        entry.key: entry.value.toList()..sort(),
+    };
+  }
+
   Future<void> claimBlock(int blockId,
       {List<String> people = const [],
-      Map<String, List<int>> assignments = const {}}) async {
+      Map<String, List<int>> assignments = const {},
+      String? workDate}) async {
     final actor = user?.name;
     final normalized = <String>[];
     final seen = <String>{};
@@ -838,6 +885,8 @@ class AppState extends ChangeNotifier {
         'claim': true,
         'people': normalized,
         'assignments': assignments,
+        'trackerId': currentTracker?.id,
+        'workDate': workDate,
       });
       await _savePendingQueue();
       return;
@@ -848,6 +897,8 @@ class AppState extends ChangeNotifier {
       claim: true,
       people: normalized,
       assignments: assignments,
+      trackerId: currentTracker?.id,
+      workDate: workDate,
     );
     if (!ok) {
       await loadBlocks(showLoading: false);
@@ -906,6 +957,7 @@ class AppState extends ChangeNotifier {
         'people': claimPeople,
         'assignments': claimAssignments,
         'scanDraft': claim['scanDraft'],
+        'workDate': (claim['workDate'] ?? (claim['scanDraft'] as Map?)?['work_date'])?.toString(),
       });
     }
 
@@ -933,22 +985,32 @@ class AppState extends ChangeNotifier {
     }
 
     if (isOffline) {
-      _pendingQueue.add({
-        'type': 'claim',
-        'blockId': blockId,
-        'claim': true,
-        'people': allPeople,
-        'assignments': mergedAssignments,
-      });
-      await _savePendingQueue();
       for (final claim in normalizedClaims) {
         final draft = claim['scanDraft'];
-        if (draft is! Map<String, dynamic>) {
+        final workDate = claim['workDate']?.toString();
+        if (draft is Map<String, dynamic>) {
+          _pendingQueue.add({
+            'type': 'claim_scan',
+            'blockId': blockId,
+            'people': List<String>.from(claim['people'] ?? const <String>[]),
+            'assignments': Map<String, List<int>>.from(
+              (claim['assignments'] as Map? ?? const {}).map(
+                (key, value) => MapEntry(
+                  key.toString(),
+                  List<int>.from(value as List? ?? const []),
+                ),
+              ),
+            ),
+            'draft': draft,
+            'trackerId': currentTracker?.id,
+            'workDate': workDate,
+          });
           continue;
         }
         _pendingQueue.add({
-          'type': 'claim_scan',
+          'type': 'claim',
           'blockId': blockId,
+          'claim': true,
           'people': List<String>.from(claim['people'] ?? const <String>[]),
           'assignments': Map<String, List<int>>.from(
             (claim['assignments'] as Map? ?? const {}).map(
@@ -958,8 +1020,8 @@ class AppState extends ChangeNotifier {
               ),
             ),
           ),
-          'draft': draft,
           'trackerId': currentTracker?.id,
+          'workDate': workDate,
         });
       }
       await _savePendingQueue();
@@ -967,20 +1029,24 @@ class AppState extends ChangeNotifier {
     }
 
     try {
-      final ok = await api.claimBlock(
-        blockId,
-        claim: true,
-        people: allPeople,
-        assignments: mergedAssignments,
-      );
-      if (!ok) {
-        await loadBlocks(showLoading: false);
-        return false;
-      }
-
       for (final claim in normalizedClaims) {
         final draft = claim['scanDraft'];
+        final workDate = claim['workDate']?.toString();
         if (draft is! Map<String, dynamic>) {
+          final ok = await api.claimBlock(
+            blockId,
+            claim: true,
+            people: List<String>.from(claim['people'] ?? const <String>[]),
+            assignments: Map<String, List<int>>.from(
+              claim['assignments'] as Map? ?? const {},
+            ),
+            trackerId: currentTracker?.id,
+            workDate: workDate,
+          );
+          if (!ok) {
+            await loadBlocks(showLoading: false);
+            return false;
+          }
           continue;
         }
         try {
@@ -992,9 +1058,11 @@ class AppState extends ChangeNotifier {
             ),
             draft: draft,
             trackerId: currentTracker?.id,
+            workDate: workDate,
           );
         } catch (_) {
-          // Claim state is already saved. Scan/report logging is best-effort.
+          await loadBlocks(showLoading: false);
+          return false;
         }
       }
 
@@ -1013,6 +1081,7 @@ class AppState extends ChangeNotifier {
       claimedPeople: const [],
       claimAssignments: const {},
       claimedAt: null,
+      merge: false,
     );
     notifyListeners();
 
@@ -1027,6 +1096,7 @@ class AppState extends ChangeNotifier {
         'claim': false,
         'people': const <String>[],
         'assignments': const <String, List<int>>{},
+        'trackerId': currentTracker?.id,
       });
       await _savePendingQueue();
       return;
@@ -1041,6 +1111,7 @@ class AppState extends ChangeNotifier {
     required List<String> people,
     required Map<String, List<int>> assignments,
     required Map<String, dynamic> draft,
+    String? workDate,
   }) async {
     final actor = user?.name;
     final normalized = <String>[];
@@ -1074,6 +1145,7 @@ class AppState extends ChangeNotifier {
         'assignments': assignments,
         'draft': draft,
         'trackerId': currentTracker?.id,
+        'workDate': workDate,
       });
       await _savePendingQueue();
       return true;
@@ -1086,6 +1158,7 @@ class AppState extends ChangeNotifier {
         assignments: assignments,
         draft: draft,
         trackerId: currentTracker?.id,
+        workDate: workDate,
       );
       unawaited(loadBlocks(showLoading: false));
       return true;
