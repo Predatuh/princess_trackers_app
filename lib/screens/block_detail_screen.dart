@@ -1050,6 +1050,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                       child: _buildHeader(
                         state,
                         pct,
+                        completionStatus,
                         canClaimFromHere: canClaimFromHere,
                       ),
                     );
@@ -1063,7 +1064,8 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
 
   Widget _buildHeader(
     AppState state,
-    double pct, {
+    double pct,
+    String completionStatus, {
     required bool canClaimFromHere,
   }) {
     return GlassCard(
