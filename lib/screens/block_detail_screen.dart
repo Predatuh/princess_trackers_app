@@ -61,6 +61,43 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
     return labels.isEmpty ? 'None selected' : labels.join(', ');
   }
 
+  List<String> _trackedStatuses(AppState state) {
+    final tracker = state.currentTracker;
+    final statuses = tracker?.statusTypes ?? const <String>[];
+    return statuses.isNotEmpty ? statuses : const <String>['term'];
+  }
+
+  int _completedTaskParts(AppState state) {
+    final statuses = _trackedStatuses(state);
+    if (block.lbds.isEmpty) {
+      return statuses.fold<int>(0, (sum, statusType) => sum + (block.lbdSummary[statusType] ?? 0));
+    }
+    int completed = 0;
+    for (final lbd in block.lbds) {
+      for (final statusType in statuses) {
+        final isCompleted = lbd.statuses.any(
+          (status) => status.statusType == statusType && status.isCompleted,
+        );
+        if (isCompleted) {
+          completed++;
+        }
+      }
+    }
+    return completed;
+  }
+
+  int _totalTaskParts(AppState state) {
+    return block.lbds.length * _trackedStatuses(state).length;
+  }
+
+  String _formatPercent(double progress) {
+    final percent = progress * 100;
+    if ((percent - percent.round()).abs() < 0.005) {
+      return '${percent.round()}%';
+    }
+    return '${percent.toStringAsFixed(2)}%';
+  }
+
   Future<void> _showClaimDialog(AppState state, {Uint8List? initialScanBytes}) async {
     final tracker = state.currentTracker;
     final availableTaskTypes = tracker?.statusTypes ?? const <String>[];
@@ -395,7 +432,17 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
               final currentSelections = currentAssignments[currentTaskType] ?? const <int>[];
               final currentTaskName = state.getStatusName(currentTaskType);
               final currentTaskColor = state.getStatusColor(currentTaskType);
-              final allCurrentTaskIds = block.lbds.map((lbd) => lbd.id).toList();
+              final persistedClaimedIds = Set<int>.from(block.claimAssignments[currentTaskType] ?? const <int>[]);
+              final stagedClaimedIds = <int>{};
+              for (final claim in _stagedClaims) {
+                final assignments = _normalizeAssignments(claim['assignments']);
+                stagedClaimedIds.addAll(assignments[currentTaskType] ?? const <int>[]);
+              }
+              final unavailableIds = {...persistedClaimedIds, ...stagedClaimedIds};
+              final allCurrentTaskIds = block.lbds
+                  .map((lbd) => lbd.id)
+                  .where((id) => !unavailableIds.contains(id) || currentSelections.contains(id))
+                  .toList();
 
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -473,6 +520,18 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                       itemBuilder: (context, index) {
                         final lbd = block.lbds[index];
                         final isSelected = currentSelections.contains(lbd.id);
+                        final isPersistedClaimed = persistedClaimedIds.contains(lbd.id);
+                        final isStagedClaimed = !isPersistedClaimed && stagedClaimedIds.contains(lbd.id);
+                        final isUnavailable = (isPersistedClaimed || isStagedClaimed) && !isSelected;
+                        final subtitleParts = <String>[];
+                        if ((lbd.name ?? '').trim() != _lbdLabel(lbd)) {
+                          subtitleParts.add(lbd.name ?? '');
+                        }
+                        if (isPersistedClaimed) {
+                          subtitleParts.add('Already claimed');
+                        } else if (isStagedClaimed) {
+                          subtitleParts.add('Already staged');
+                        }
                         return CheckboxListTile(
                           value: isSelected,
                           dense: true,
@@ -481,15 +540,20 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                           contentPadding: const EdgeInsets.symmetric(horizontal: 8),
                           title: Text(
                             _lbdLabel(lbd),
-                            style: AppTheme.font(size: 13, color: C.text),
+                            style: AppTheme.font(size: 13, color: isUnavailable ? C.textDim : C.text),
                           ),
-                          subtitle: (lbd.name ?? '').trim() != _lbdLabel(lbd)
+                          subtitle: subtitleParts.isNotEmpty
                               ? Text(
-                                  lbd.name ?? '',
-                                  style: AppTheme.font(size: 11, color: C.textDim),
+                                  subtitleParts.join(' • '),
+                                  style: AppTheme.font(
+                                    size: 11,
+                                    color: isPersistedClaimed
+                                        ? C.gold
+                                        : (isStagedClaimed ? C.cyan : C.textDim),
+                                  ),
                                 )
                               : null,
-                          onChanged: (value) {
+                          onChanged: isUnavailable ? null : (value) {
                             setModalState(() {
                               validationError = null;
                               final updated = List<int>.from(currentAssignments[currentTaskType] ?? const []);
@@ -558,6 +622,54 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                         'Pick the crew for this claim, choose the exact date, then select tasks and LBDs. Add Claim keeps this window open so you can stage another claim on the same block.',
                         style: AppTheme.font(size: 12, color: C.textSub),
                       ),
+                      if (block.isClaimed || block.claimAssignments.isNotEmpty) ...[
+                        const SizedBox(height: 14),
+                        Text('Already Claimed', style: AppTheme.font(size: 14, weight: FontWeight.w700, color: C.gold)),
+                        const SizedBox(height: 8),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: C.gold.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: C.gold.withValues(alpha: 0.22)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                block.claimedLabel != null && block.claimedLabel!.trim().isNotEmpty
+                                    ? 'Crew: ${block.claimedLabel}'
+                                    : 'Crew already assigned on this block',
+                                style: AppTheme.font(size: 12, weight: FontWeight.w700, color: C.text),
+                              ),
+                              const SizedBox(height: 8),
+                              ...block.claimAssignments.entries.map((entry) => Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    SizedBox(
+                                      width: 92,
+                                      child: Text(
+                                        state.getStatusName(entry.key),
+                                        style: AppTheme.font(size: 12, weight: FontWeight.w700, color: C.gold),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        _selectionSummary(state, entry.key, block.claimAssignments),
+                                        style: AppTheme.font(size: 12, color: C.textSub),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )),
+                            ],
+                          ),
+                        ),
+                      ],
                       // Show previously staged claims
                       if (_stagedClaims.isNotEmpty) ...[
                         const SizedBox(height: 14),
@@ -980,18 +1092,9 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
     final fresh = state.blocks.where((b) => b.id == block.id).firstOrNull;
     if (fresh != null) block = fresh;
 
-    final completionStatus = tracker?.statusTypes.isNotEmpty == true
-        ? tracker!.statusTypes.last
-        : 'term';
-    int completedCount = 0;
-    final totalLbds = block.lbds.length;
-    for (final lbd in block.lbds) {
-      final isCompleted = lbd.statuses
-          .where((s) => s.statusType == completionStatus && s.isCompleted)
-          .isNotEmpty;
-      if (isCompleted) completedCount++;
-    }
-    final pct = totalLbds > 0 ? completedCount / totalLbds : 0.0;
+    final completedTaskParts = _completedTaskParts(state);
+    final totalTaskParts = _totalTaskParts(state);
+    final pct = totalTaskParts > 0 ? completedTaskParts / totalTaskParts : 0.0;
 
     return PopScope(
       canPop: _stagedClaims.isEmpty,
@@ -1050,7 +1153,8 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                       child: _buildHeader(
                         state,
                         pct,
-                        completionStatus,
+                        completedTaskParts,
+                        totalTaskParts,
                         canClaimFromHere: canClaimFromHere,
                       ),
                     );
@@ -1065,23 +1169,25 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
   Widget _buildHeader(
     AppState state,
     double pct,
-    String completionStatus, {
+    int completedTaskParts,
+    int totalTaskParts, {
     required bool canClaimFromHere,
   }) {
+    final accentColor = pct >= 1.0 ? C.green : (pct > 0 ? C.gold : C.cyan);
     return GlassCard(
       padding: const EdgeInsets.all(20),
       child: Row(
         children: [
           ProgressArc(
             value: pct,
-            color: pct >= 1.0 ? C.green : C.cyan,
+            color: accentColor,
             size: 64,
             strokeWidth: 4.5,
             child: Text(
-              '${(pct * 100).toInt()}%',
+              _formatPercent(pct),
               style: AppTheme.displayFont(
                 size: 14,
-                color: pct >= 1.0 ? C.green : C.cyan,
+                color: accentColor,
               ),
             ),
           ),
@@ -1093,8 +1199,10 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                 Text(block.name,
                     style: AppTheme.font(size: 16, weight: FontWeight.w700)),
                 const SizedBox(height: 4),
-                Text('${(pct * 100).toInt()}% ${state.getStatusName(completionStatus).toLowerCase()}',
-                    style: AppTheme.font(size: 12, color: C.textSub)),
+                Text(
+                  '${_formatPercent(pct)} complete • $completedTaskParts/$totalTaskParts parts',
+                  style: AppTheme.font(size: 12, color: pct >= 1.0 ? C.green : (pct > 0 ? C.gold : C.textSub)),
+                ),
                 if (block.hasIfc) ...[
                   const SizedBox(height: 10),
                   GestureDetector(

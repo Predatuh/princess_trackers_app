@@ -266,23 +266,41 @@ class _ClaimBlockCard extends StatelessWidget {
 
   const _ClaimBlockCard({required this.block});
 
-  int _completedLbdCount(PowerBlock block, Tracker? tracker) {
-    final completionStatus = tracker?.statusTypes.isNotEmpty == true
-        ? tracker!.statusTypes.last
-        : 'term';
+  List<String> _trackedStatuses(Tracker? tracker) {
+    final statuses = tracker?.statusTypes ?? const <String>[];
+    return statuses.isNotEmpty ? statuses : const <String>['term'];
+  }
+
+  int _completedTaskParts(PowerBlock block, Tracker? tracker) {
+    final statuses = _trackedStatuses(tracker);
     if (block.lbds.isEmpty) {
-      return block.lbdSummary[completionStatus] ?? 0;
+      return statuses.fold<int>(0, (sum, statusType) => sum + (block.lbdSummary[statusType] ?? 0));
     }
     int completed = 0;
     for (final lbd in block.lbds) {
-      final isCompleted = lbd.statuses.any(
-        (status) => status.statusType == completionStatus && status.isCompleted,
-      );
-      if (isCompleted) {
-        completed++;
+      for (final statusType in statuses) {
+        final isCompleted = lbd.statuses.any(
+          (status) => status.statusType == statusType && status.isCompleted,
+        );
+        if (isCompleted) {
+          completed++;
+        }
       }
     }
     return completed;
+  }
+
+  int _totalTaskParts(PowerBlock block, Tracker? tracker) {
+    final statuses = _trackedStatuses(tracker);
+    return block.lbdCount * statuses.length;
+  }
+
+  String _formatPercent(double progress) {
+    final percent = progress * 100;
+    if ((percent - percent.round()).abs() < 0.005) {
+      return '${percent.round()}%';
+    }
+    return '${percent.toStringAsFixed(2)}%';
   }
 
   @override
@@ -291,31 +309,32 @@ class _ClaimBlockCard extends StatelessWidget {
     final tracker = state.currentTracker;
     final isClaimed = block.isClaimed;
     final isFullyClaimed = block.isFullyClaimed;
-    final completedLbdCount = _completedLbdCount(block, tracker);
-    final completionProgress = block.lbdCount > 0
-        ? (completedLbdCount / block.lbdCount).clamp(0.0, 1.0)
+    final completedTaskParts = _completedTaskParts(block, tracker);
+    final totalTaskParts = _totalTaskParts(block, tracker);
+    final completionProgress = totalTaskParts > 0
+        ? (completedTaskParts / totalTaskParts).clamp(0.0, 1.0)
         : 0.0;
     final visualProgress = block.claimProgress > completionProgress ? block.claimProgress : completionProgress;
     final isVisuallyComplete = isFullyClaimed || completionProgress >= 1.0;
     final isVisuallyInProgress = !isVisuallyComplete && visualProgress > 0;
     final accentColor = isVisuallyComplete
         ? C.green
-        : (isVisuallyInProgress ? C.green : C.cyan);
+        : (isVisuallyInProgress ? C.gold : C.cyan);
     final cardDecoration = BoxDecoration(
       color: isVisuallyComplete
           ? C.green.withValues(alpha: 0.14)
-          : (isVisuallyInProgress ? C.green.withValues(alpha: 0.08) : const Color(0x12FFFFFF)),
+          : (isVisuallyInProgress ? C.gold.withValues(alpha: 0.08) : const Color(0x12FFFFFF)),
       borderRadius: BorderRadius.circular(16),
       border: Border.all(
         color: isVisuallyComplete
             ? C.green.withValues(alpha: 0.38)
-            : (isVisuallyInProgress ? C.green.withValues(alpha: 0.24) : C.cyan.withValues(alpha: 0.12)),
+            : (isVisuallyInProgress ? C.gold.withValues(alpha: 0.28) : C.cyan.withValues(alpha: 0.12)),
       ),
       boxShadow: [
         ...(isVisuallyComplete
             ? AppTheme.neonGlowStrong(C.green)
             : (isVisuallyInProgress
-                ? AppTheme.neonGlow(C.green, blur: 22, opacity: 0.16)
+                ? AppTheme.neonGlow(C.gold, blur: 22, opacity: 0.16)
                 : AppTheme.neonGlow(C.cyan, blur: 18, opacity: 0.10))),
         BoxShadow(
           color: Colors.black.withValues(alpha: 0.18),
@@ -374,9 +393,11 @@ class _ClaimBlockCard extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(999),
-                    color: C.green.withValues(alpha: isVisuallyComplete ? 0.18 : 0.12),
+                    color: (isVisuallyComplete ? C.green : (isVisuallyInProgress ? C.gold : C.green))
+                        .withValues(alpha: isVisuallyComplete ? 0.18 : 0.12),
                     border: Border.all(
-                      color: C.green.withValues(alpha: isVisuallyComplete ? 0.32 : 0.22),
+                      color: (isVisuallyComplete ? C.green : (isVisuallyInProgress ? C.gold : C.green))
+                          .withValues(alpha: isVisuallyComplete ? 0.32 : 0.22),
                     ),
                   ),
                   child: Text(
@@ -390,7 +411,7 @@ class _ClaimBlockCard extends StatelessWidget {
                     style: AppTheme.font(
                       size: 11,
                       weight: FontWeight.w700,
-                      color: C.green,
+                      color: isVisuallyComplete ? C.green : (isVisuallyInProgress ? C.gold : C.green),
                     ),
                   ),
                 ),
@@ -411,11 +432,16 @@ class _ClaimBlockCard extends StatelessWidget {
               isFullyClaimed
                   ? 'All ${block.lbdCount} ${tracker?.itemNamePlural ?? 'items'} claimed on this block'
                   : (isVisuallyComplete
-                      ? '${completedLbdCount}/${block.lbdCount} ${tracker?.itemNamePlural ?? 'items'} complete'
+                      ? '${completedTaskParts}/${totalTaskParts} parts complete • ${_formatPercent(completionProgress)}'
                       : (isClaimed
                       ? '${block.claimedLbdCount}/${block.lbdCount} ${tracker?.itemNamePlural ?? 'items'} claimed'
-                      : '${completedLbdCount}/${block.lbdCount} ${tracker?.itemNamePlural ?? 'items'} complete')),
-              style: AppTheme.font(size: 12, color: (isClaimed || isVisuallyInProgress || isVisuallyComplete) ? C.green : C.textSub),
+                      : '${completedTaskParts}/${totalTaskParts} parts complete • ${_formatPercent(completionProgress)}')),
+              style: AppTheme.font(
+                size: 12,
+                color: isVisuallyComplete
+                    ? C.green
+                    : ((isClaimed || isVisuallyInProgress) ? C.gold : C.textSub),
+              ),
             ),
             if (isClaimed) ...[
               const SizedBox(height: 10),
