@@ -93,10 +93,10 @@ class _BlocksTabState extends State<BlocksTab> {
         filtered.sort((a, b) => a.name.compareTo(b.name));
         break;
       case _SortMode.progressAsc:
-        filtered.sort((a, b) => _blockProgress(a).compareTo(_blockProgress(b)));
+        filtered.sort((a, b) => _blockProgress(a, tracker).compareTo(_blockProgress(b, tracker)));
         break;
       case _SortMode.progressDesc:
-        filtered.sort((a, b) => _blockProgress(b).compareTo(_blockProgress(a)));
+        filtered.sort((a, b) => _blockProgress(b, tracker).compareTo(_blockProgress(a, tracker)));
         break;
     }
 
