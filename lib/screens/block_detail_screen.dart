@@ -92,6 +92,10 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
     final suggestions = await state.api.getClaimPeople();
     if (!mounted) return;
     final crewOptions = <String>[...suggestions];
+    final currentUserName = state.user?.name.trim();
+    final canDefaultToCurrentUser = currentUserName != null &&
+      currentUserName.isNotEmpty &&
+      crewOptions.any((name) => name.toLowerCase() == currentUserName.toLowerCase());
 
     // Current claim editor state
     var currentCrew = <String>{};
@@ -110,8 +114,8 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
       ? (initialDraft?['work_date']?.toString() ?? '').split('T').first.trim()
       : _todayIsoDate();
 
-    if (currentCrew.isEmpty && state.user?.name != null) {
-      currentCrew.add(state.user!.name);
+    if (currentCrew.isEmpty && canDefaultToCurrentUser) {
+      currentCrew.add(currentUserName!);
     }
 
     final extraController = TextEditingController();
@@ -288,8 +292,8 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
               validationError = null;
               currentTaskIndex = 0;
               claimWorkDate = _todayIsoDate();
-              if (state.user?.name != null) {
-                currentCrew.add(state.user!.name);
+              if (canDefaultToCurrentUser) {
+                currentCrew.add(currentUserName!);
               }
             }
 

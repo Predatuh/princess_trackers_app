@@ -187,13 +187,39 @@ class _ClaimBlockCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.read<AppState>();
     final tracker = state.currentTracker;
+    final isFullyClaimed = block.isFullyClaimed;
+    final accentColor = isFullyClaimed
+        ? C.green
+        : (block.isClaimed ? C.purple : C.cyan);
+    final cardDecoration = BoxDecoration(
+      color: isFullyClaimed
+          ? C.green.withValues(alpha: 0.12)
+          : const Color(0x12FFFFFF),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(
+        color: isFullyClaimed
+            ? C.green.withValues(alpha: 0.38)
+            : C.cyan.withValues(alpha: 0.12),
+      ),
+      boxShadow: [
+        ...(isFullyClaimed
+            ? AppTheme.neonGlowStrong(C.green)
+            : AppTheme.neonGlow(C.cyan, blur: 18, opacity: 0.10)),
+        BoxShadow(
+          color: Colors.black.withValues(alpha: 0.18),
+          blurRadius: 24,
+          offset: const Offset(0, 12),
+          spreadRadius: -12,
+        ),
+      ],
+    );
 
     return GestureDetector(
       onTap: () => Navigator.pushNamed(context, '/block', arguments: block),
       child: Container(
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(16),
-        decoration: AppTheme.glassDecoration(radius: 16),
+        decoration: cardDecoration,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -204,9 +230,9 @@ class _ClaimBlockCard extends StatelessWidget {
                   height: 44,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(14),
-                    color: (block.isClaimed ? C.purple : C.cyan).withValues(alpha: 0.14),
+                    color: accentColor.withValues(alpha: 0.14),
                     border: Border.all(
-                      color: (block.isClaimed ? C.purple : C.cyan).withValues(alpha: 0.28),
+                      color: accentColor.withValues(alpha: 0.28),
                     ),
                   ),
                   alignment: Alignment.center,
@@ -214,7 +240,7 @@ class _ClaimBlockCard extends StatelessWidget {
                     '${block.powerBlockNumber}',
                     style: AppTheme.displayFont(
                       size: 14,
-                      color: block.isClaimed ? C.purple : C.cyan,
+                      color: accentColor,
                     ),
                   ),
                 ),
@@ -236,21 +262,38 @@ class _ClaimBlockCard extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(999),
-                    color: (block.isClaimed ? C.purple : C.green).withValues(alpha: 0.14),
+                    color: (isFullyClaimed ? C.green : (block.isClaimed ? C.purple : C.green)).withValues(alpha: 0.14),
                     border: Border.all(
-                      color: (block.isClaimed ? C.purple : C.green).withValues(alpha: 0.25),
+                      color: (isFullyClaimed ? C.green : (block.isClaimed ? C.purple : C.green)).withValues(alpha: 0.25),
                     ),
                   ),
                   child: Text(
-                    'Add Claim',
+                    isFullyClaimed ? '100% Claimed' : 'Add Claim',
                     style: AppTheme.font(
                       size: 11,
                       weight: FontWeight.w700,
-                      color: block.isClaimed ? C.purple : C.green,
+                      color: isFullyClaimed ? C.green : (block.isClaimed ? C.purple : C.green),
                     ),
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                value: block.claimProgress,
+                minHeight: 6,
+                backgroundColor: C.surfaceLight.withValues(alpha: 0.8),
+                valueColor: AlwaysStoppedAnimation<Color>(accentColor),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              isFullyClaimed
+                  ? 'All ${block.lbdCount} ${tracker?.itemNamePlural ?? 'items'} claimed on this block'
+                  : '${block.claimedLbdCount}/${block.lbdCount} ${tracker?.itemNamePlural ?? 'items'} claimed',
+              style: AppTheme.font(size: 12, color: isFullyClaimed ? C.green : C.textSub),
             ),
             if (block.isClaimed) ...[
               const SizedBox(height: 10),

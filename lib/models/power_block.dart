@@ -74,6 +74,29 @@ class PowerBlock {
 
   bool get isClaimed => claimedPeople.isNotEmpty || claimedBy != null;
 
+  int get claimedLbdCount {
+    final claimedIds = <int>{};
+    for (final ids in claimAssignments.values) {
+      claimedIds.addAll(ids.where((id) => id > 0));
+    }
+    for (final lbd in lbds) {
+      if (lbd.statuses.any((status) => status.isCompleted)) {
+        claimedIds.add(lbd.id);
+      }
+    }
+    return claimedIds.length;
+  }
+
+  bool get isFullyClaimed => lbdCount > 0 && claimedLbdCount >= lbdCount;
+
+  double get claimProgress {
+    if (lbdCount <= 0) return 0;
+    final progress = claimedLbdCount / lbdCount;
+    if (progress < 0) return 0;
+    if (progress > 1) return 1;
+    return progress;
+  }
+
   String? get claimedLabel {
     if (claimedPeople.isNotEmpty) return claimedPeople.join(', ');
     return claimedBy;

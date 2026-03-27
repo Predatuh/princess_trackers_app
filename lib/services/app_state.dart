@@ -857,7 +857,7 @@ class AppState extends ChangeNotifier {
     final actor = user?.name;
     final normalized = <String>[];
     final seen = <String>{};
-    for (final person in [if (actor != null) actor, ...people]) {
+    for (final person in people) {
       final name = person.trim();
       if (name.isEmpty) continue;
       final key = name.toLowerCase();
@@ -866,7 +866,7 @@ class AppState extends ChangeNotifier {
 
     _updateBlockClaim(
       blockId,
-      claimedBy: actor,
+      claimedBy: actor ?? (normalized.isNotEmpty ? normalized.first : null),
       claimedPeople: normalized,
       claimAssignments: assignments,
       claimedAt: DateTime.now().toUtc().toIso8601String(),
@@ -921,7 +921,7 @@ class AppState extends ChangeNotifier {
       final rawPeople = List<String>.from(claim['people'] ?? const <String>[]);
       final claimPeople = <String>[];
       final claimSeen = <String>{};
-      for (final person in [if (actor != null) actor, ...rawPeople]) {
+      for (final person in rawPeople) {
         final name = person.trim();
         if (name.isEmpty) continue;
         final key = name.toLowerCase();
@@ -1116,7 +1116,7 @@ class AppState extends ChangeNotifier {
     final actor = user?.name;
     final normalized = <String>[];
     final seen = <String>{};
-    for (final person in [if (actor != null) actor, ...people]) {
+    for (final person in people) {
       final name = person.trim();
       if (name.isEmpty) continue;
       final key = name.toLowerCase();
