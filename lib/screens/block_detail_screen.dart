@@ -51,6 +51,38 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
     return normalized;
   }
 
+  Map<String, List<int>> _persistedAssignmentsForTasks(List<String> taskTypes) {
+    final visibleAssignments = block.visibleClaimAssignments;
+    if (visibleAssignments.isEmpty) {
+      return const {};
+    }
+    if (taskTypes.isEmpty) {
+      return visibleAssignments;
+    }
+
+    final normalized = <String, List<int>>{};
+    final fallbackIds = <int>{};
+    var hasMappedAssignments = false;
+
+    visibleAssignments.forEach((statusType, ids) {
+      if (taskTypes.contains(statusType)) {
+        hasMappedAssignments = true;
+        normalized[statusType] = List<int>.from(ids)..sort();
+      } else {
+        fallbackIds.addAll(ids.where((id) => id > 0));
+      }
+    });
+
+    if (!hasMappedAssignments && fallbackIds.isNotEmpty) {
+      final fallbackList = fallbackIds.toList()..sort();
+      for (final statusType in taskTypes) {
+        normalized[statusType] = List<int>.from(fallbackList);
+      }
+    }
+
+    return normalized;
+  }
+
   String _selectionSummary(AppState state, String statusType, Map<String, List<int>> assignments) {
     final ids = assignments[statusType] ?? const [];
     if (ids.isEmpty) return 'None selected';
@@ -101,6 +133,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
   Future<void> _showClaimDialog(AppState state, {Uint8List? initialScanBytes}) async {
     final tracker = state.currentTracker;
     final availableTaskTypes = tracker?.statusTypes ?? const <String>[];
+    final persistedAssignments = _persistedAssignmentsForTasks(availableTaskTypes);
 
     // Process initial scan bytes before opening dialog
     Map<String, dynamic>? initialDraft;
@@ -432,7 +465,9 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
               final currentSelections = currentAssignments[currentTaskType] ?? const <int>[];
               final currentTaskName = state.getStatusName(currentTaskType);
               final currentTaskColor = state.getStatusColor(currentTaskType);
-              final persistedClaimedIds = Set<int>.from(block.claimAssignments[currentTaskType] ?? const <int>[]);
+              final persistedClaimedIds = Set<int>.from(
+                persistedAssignments[currentTaskType] ?? const <int>[],
+              );
               final stagedClaimedIds = <int>{};
               for (final claim in _stagedClaims) {
                 final assignments = _normalizeAssignments(claim['assignments']);
@@ -622,7 +657,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                         'Pick the crew for this claim, choose the exact date, then select tasks and LBDs. Add Claim keeps this window open so you can stage another claim on the same block.',
                         style: AppTheme.font(size: 12, color: C.textSub),
                       ),
-                      if (block.isClaimed || block.claimAssignments.isNotEmpty) ...[
+                      if (persistedAssignments.isNotEmpty) ...[
                         const SizedBox(height: 14),
                         Text('Already Claimed', style: AppTheme.font(size: 14, weight: FontWeight.w700, color: C.gold)),
                         const SizedBox(height: 8),
@@ -644,7 +679,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                                 style: AppTheme.font(size: 12, weight: FontWeight.w700, color: C.text),
                               ),
                               const SizedBox(height: 8),
-                              ...block.claimAssignments.entries.map((entry) => Padding(
+                              ...persistedAssignments.entries.map((entry) => Padding(
                                 padding: const EdgeInsets.only(bottom: 6),
                                 child: Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -659,7 +694,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
-                                        _selectionSummary(state, entry.key, block.claimAssignments),
+                                        _selectionSummary(state, entry.key, persistedAssignments),
                                         style: AppTheme.font(size: 12, color: C.textSub),
                                       ),
                                     ),
@@ -1066,6 +1101,9 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
     final state = context.watch<AppState>();
     final tracker = state.currentTracker;
     final canClaimFromHere = state.user != null && state.selectedTab == 3;
+    final persistedAssignments = _persistedAssignmentsForTasks(
+      tracker?.statusTypes ?? const <String>[],
+    );
 
     if (block.id == 0) {
       return Scaffold(
@@ -1262,10 +1300,10 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                           color: C.purple),
                     ),
                   ),
-                  if (block.claimAssignments.isNotEmpty) ...[
+                  if (persistedAssignments.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     Text(
-                      block.claimAssignments.entries
+                      persistedAssignments.entries
                           .map((entry) => '${state.getStatusName(entry.key)}: ${entry.value.length}')
                           .join(' • '),
                       style: AppTheme.font(size: 11, color: C.textSub),
