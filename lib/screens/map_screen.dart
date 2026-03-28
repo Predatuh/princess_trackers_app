@@ -90,7 +90,7 @@ class _MapTabState extends State<MapTab> {
       final imgUrl = await api.getMapImageUrl();
       _mapImageUrl = imgUrl;
 
-      _statusData = await api.getMapStatus(mapId);
+      _statusData = await api.getMapStatus(mapId, trackerId: state.currentTracker?.id);
 
       if (imgUrl != null) {
         final fullUrl = '${ApiService.baseUrl}$imgUrl';

@@ -448,6 +448,7 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
         claimedBy: state.user?.name,
       );
       await state.loadBlocks(trackerId: tracker.id, showLoading: false);
+      await state.loadAllTrackerData();
       final refreshedBlock = await state.api.getPowerBlock(block.id, trackerId: tracker.id);
       if (!mounted) return;
       setState(() {

@@ -476,8 +476,9 @@ class ApiService {
     return null;
   }
 
-  Future<List<dynamic>> getMapStatus(int mapId) async {
-    final res = await _get('/api/map/map-status/$mapId');
+  Future<List<dynamic>> getMapStatus(int mapId, {int? trackerId}) async {
+    final query = trackerId != null ? '?tracker_id=$trackerId' : '';
+    final res = await _get('/api/map/map-status/$mapId$query');
     if (res.statusCode == 200) {
       final j = jsonDecode(res.body);
       return j['data'] as List;
