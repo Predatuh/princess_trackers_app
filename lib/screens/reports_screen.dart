@@ -19,6 +19,12 @@ class ReportsTab extends StatefulWidget {
 class _ReportsTabState extends State<ReportsTab> {
   List<DailyReport> _reports = [];
   bool _loading = true;
+  bool _loadingSelectedDateReport = false;
+  DateTime _selectedDate = DateTime.now();
+  DailyReport? _selectedDateReport;
+
+  String get _selectedDateIso =>
+      '${_selectedDate.year.toString().padLeft(4, '0')}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
 
   int _intValue(dynamic value) {
     if (value is int) return value;
@@ -32,18 +38,107 @@ class _ReportsTabState extends State<ReportsTab> {
     _load();
   }
 
+  void _mergeReportIntoList(DailyReport report) {
+    _reports = [
+      report,
+      ..._reports.where((entry) => entry.id != report.id && entry.reportDate != report.reportDate),
+    ]..sort((left, right) => right.reportDate.compareTo(left.reportDate));
+  }
+
+  String _formatIsoDate(String isoDate) {
+    final parsed = DateTime.tryParse(isoDate);
+    if (parsed == null) return isoDate;
+    const monthNames = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${monthNames[parsed.month - 1]} ${parsed.day}, ${parsed.year}';
+  }
+
+  void _showSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg, style: AppTheme.font(size: 14)),
+        backgroundColor: C.surface,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   Future<void> _load() async {
     setState(() => _loading = true);
     final state = context.read<AppState>();
     final trackerId = state.currentTracker?.id;
-    _reports = await state.api.getReports(trackerId ?? 0);
+    final reports = await state.api.getReports(trackerId ?? 0);
+    final selectedReport = await state.api.getReportByDate(
+      _selectedDateIso,
+      trackerId: trackerId,
+    );
     if (!mounted) return;
-    setState(() => _loading = false);
+    setState(() {
+      _reports = reports;
+      _selectedDateReport = selectedReport;
+      if (selectedReport != null) {
+        _mergeReportIntoList(selectedReport);
+      }
+      _loading = false;
+    });
   }
 
-  Future<void> _generateToday() async {
+  Future<void> _pickDate() async {
+    final nextDate = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2024, 1, 1),
+      lastDate: DateTime(2100, 12, 31),
+    );
+    if (nextDate == null || !mounted) return;
+    setState(() => _selectedDate = nextDate);
+    await _loadSelectedDateReport();
+  }
+
+  Future<void> _loadSelectedDateReport({bool openWhenFound = false}) async {
     final state = context.read<AppState>();
-    await state.api.generateReport(trackerId: state.currentTracker?.id);
+    setState(() => _loadingSelectedDateReport = true);
+    try {
+      final report = await state.api.getReportByDate(
+        _selectedDateIso,
+        trackerId: state.currentTracker?.id,
+      );
+      if (!mounted) return;
+      setState(() {
+        _selectedDateReport = report;
+        if (report != null) {
+          _mergeReportIntoList(report);
+        }
+        _loadingSelectedDateReport = false;
+      });
+      if (report != null && openWhenFound) {
+        _showDetail(report.id);
+      } else if (report == null && openWhenFound) {
+        _showSnack('No report found for ${_formatIsoDate(_selectedDateIso)}');
+      }
+    } on Exception catch (e) {
+      if (!mounted) return;
+      setState(() => _loadingSelectedDateReport = false);
+      _showSnack(e.toString().replaceFirst('Exception: ', ''));
+    }
+  }
+
+  Future<void> _generateSelectedDate() async {
+    final state = context.read<AppState>();
+    final generated = await state.api.generateReport(
+      date: _selectedDateIso,
+      trackerId: state.currentTracker?.id,
+    );
+    if (generated != null && mounted) {
+      setState(() {
+        _selectedDateReport = generated;
+        _mergeReportIntoList(generated);
+      });
+      _showSnack('Report ready for ${_formatIsoDate(_selectedDateIso)}');
+    }
     await _load();
   }
 
@@ -490,37 +585,129 @@ class _ReportsTabState extends State<ReportsTab> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-          child: GestureDetector(
-            onTap: _generateToday,
-            child: GlassCard(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              borderRadius: 14,
-              glowColor: C.green,
-              glowBlur: 10,
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: C.green.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.add_chart_rounded, color: C.green, size: 20),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+          child: Column(
+            children: [
+              GlassCard(
+                padding: const EdgeInsets.all(16),
+                borderRadius: 14,
+                glowColor: C.cyan,
+                glowBlur: 12,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
-                        Text('Generate Report', style: AppTheme.font(size: 15, weight: FontWeight.w700)),
-                        Text("Create today's status report", style: AppTheme.font(size: 12, color: C.textSub)),
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: C.cyan.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.calendar_month_rounded, color: C.cyan, size: 20),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Selected Report Day', style: AppTheme.font(size: 15, weight: FontWeight.w700)),
+                              Text(_formatIsoDate(_selectedDateIso), style: AppTheme.font(size: 12, color: C.textSub)),
+                            ],
+                          ),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: _pickDate,
+                          icon: const Icon(Icons.edit_calendar_rounded, size: 16),
+                          label: const Text('Pick'),
+                        ),
                       ],
                     ),
-                  ),
-                  Icon(Icons.arrow_forward_rounded, color: C.green.withValues(alpha: 0.6), size: 20),
-                ],
+                    const SizedBox(height: 12),
+                    if (_loadingSelectedDateReport)
+                      Row(
+                        children: [
+                          const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(color: C.cyan, strokeWidth: 2),
+                          ),
+                          const SizedBox(width: 10),
+                          Text('Checking selected day...', style: AppTheme.font(size: 12, color: C.textSub)),
+                        ],
+                      )
+                    else if (_selectedDateReport != null)
+                      Text(
+                        '${_selectedDateReport!.data['total_entries'] ?? 0} updates · ${_intValue(_selectedDateReport!.data['assignment_count'])} assignments · ${_intValue(_selectedDateReport!.data['total_lbd_count'])} LBDs',
+                        style: AppTheme.font(size: 12, color: C.textSub),
+                      )
+                    else
+                      Text('No saved report for this day yet.', style: AppTheme.font(size: 12, color: C.textDim)),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SizedBox(
+                            height: 42,
+                            child: OutlinedButton.icon(
+                              onPressed: () => _loadSelectedDateReport(openWhenFound: true),
+                              icon: const Icon(Icons.visibility_rounded, size: 18),
+                              label: const Text('Open Day'),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SizedBox(
+                            height: 42,
+                            child: OutlinedButton.icon(
+                              onPressed: _loadSelectedDateReport,
+                              icon: const Icon(Icons.refresh_rounded, size: 18),
+                              label: const Text('Refresh'),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
+              const SizedBox(height: 12),
+              GestureDetector(
+                onTap: _generateSelectedDate,
+                child: GlassCard(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  borderRadius: 14,
+                  glowColor: C.green,
+                  glowBlur: 10,
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: C.green.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.add_chart_rounded, color: C.green, size: 20),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Generate Report', style: AppTheme.font(size: 15, weight: FontWeight.w700)),
+                            Text(
+                              'Create or refresh the report for ${_formatIsoDate(_selectedDateIso)}',
+                              style: AppTheme.font(size: 12, color: C.textSub),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.arrow_forward_rounded, color: C.green.withValues(alpha: 0.6), size: 20),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
         Expanded(
@@ -546,6 +733,7 @@ class _ReportsTabState extends State<ReportsTab> {
                         itemCount: _reports.length,
                         itemBuilder: (ctx, index) {
                           final report = _reports[index];
+                          final isSelectedDate = report.reportDate == _selectedDateIso;
                           final previewUrl = state.api.resolveMediaUrl(report.latestClaimScanImageUrl);
                           return GestureDetector(
                             onTap: () => _showDetail(report.id),
@@ -570,6 +758,21 @@ class _ReportsTabState extends State<ReportsTab> {
                                       children: [
                                         Text(report.reportDate, style: AppTheme.font(size: 16, weight: FontWeight.w700)),
                                         const SizedBox(height: 2),
+                                        if (isSelectedDate) ...[
+                                          Container(
+                                            margin: const EdgeInsets.only(bottom: 6),
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: C.gold.withValues(alpha: 0.14),
+                                              borderRadius: BorderRadius.circular(999),
+                                              border: Border.all(color: C.gold.withValues(alpha: 0.28)),
+                                            ),
+                                            child: Text(
+                                              'Selected day',
+                                              style: AppTheme.font(size: 10, weight: FontWeight.w700, color: C.gold),
+                                            ),
+                                          ),
+                                        ],
                                         Text(
                                           '${report.data['total_entries'] ?? 0} updates · ${_intValue(report.data['assignment_count'])} assignments · ${_intValue(report.data['total_lbd_count'])} LBDs',
                                           style: AppTheme.font(size: 12, color: C.textSub),

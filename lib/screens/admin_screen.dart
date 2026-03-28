@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/power_block.dart';
+import '../models/tracker.dart';
 import '../services/app_state.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
@@ -35,6 +37,20 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
   List<dynamic> _users = [];
   final Map<int, Map<String, dynamic>> _recentPinResets = {};
   bool _loadingUsers = false;
+  List<Map<String, dynamic>> _roleDefinitions = [];
+
+  // Claim backfill tab
+  List<String> _claimPeople = [];
+  List<PowerBlock> _backfillBlocks = [];
+  final Set<String> _backfillCrew = {};
+  final TextEditingController _backfillExtraPeopleController = TextEditingController();
+  int? _backfillTrackerId;
+  int? _backfillBlockId;
+  String _backfillDate = _todayIsoDateValue();
+  bool _loadingBackfillPeople = false;
+  bool _loadingBackfillBlocks = false;
+  bool _savingBackfill = false;
+  Map<String, List<int>> _backfillAssignments = const {};
 
   static const _presetColors = [
     '#FF4C6A', '#FF8C42', '#FFD700', '#00E87A', '#00D4FF',
@@ -42,6 +58,13 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
     '#42A5F5', '#66BB6A', '#FFCA28', '#EF5350', '#AB47BC',
     '#78909C', '#8D6E63', '#29B6F6', '#F06292', '#FFFFFF',
   ];
+
+  static String _todayIsoDateValue() {
+    final now = DateTime.now();
+    final month = now.month.toString().padLeft(2, '0');
+    final day = now.day.toString().padLeft(2, '0');
+    return '${now.year}-$month-$day';
+  }
 
   @override
   void didChangeDependencies() {
@@ -52,7 +75,7 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
     // Create tab controller lazily once we know the user role
     if (_tabController == null && role != null) {
       final isMainAdmin = role == 'admin';
-      _tabController = TabController(length: isMainAdmin ? 4 : 3, vsync: this);
+      _tabController = TabController(length: isMainAdmin ? 5 : 3, vsync: this);
     }
 
     // Sync colors and name controllers — putIfAbsent preserves user edits
@@ -68,7 +91,14 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
     if (!_loadsInitiated && role != null) {
       _loadsInitiated = true;
       _loadAreas();
-      if (role == 'admin') _loadUsers();
+      if (role == 'admin') {
+        _loadUsers();
+        _loadClaimPeople();
+      }
+    }
+
+    if (role == 'admin') {
+      _ensureBackfillTracker(state);
     }
   }
 
@@ -78,6 +108,7 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
     for (final c in _nameControllers.values) {
       c.dispose();
     }
+    _backfillExtraPeopleController.dispose();
     super.dispose();
   }
 
@@ -107,10 +138,15 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
     try {
       final api = context.read<AppState>().api;
       final results = await Future.wait<dynamic>([
-        api.getUsers(),
+        api.getUsersPayload(),
         api.getAuditLogs(limit: 250),
       ]);
-      final users = results[0] as List<dynamic>;
+      final usersPayload = Map<String, dynamic>.from(results[0] as Map);
+      final users = (usersPayload['users'] as List?) ?? const <dynamic>[];
+      final roleDefinitions = (usersPayload['roles'] as List? ?? const <dynamic>[])
+          .whereType<Map>()
+          .map((entry) => Map<String, dynamic>.from(entry.cast<String, dynamic>()))
+          .toList();
       final auditItems = results[1] as List<dynamic>;
       final recentPinResets = <int, Map<String, dynamic>>{};
       for (final entry in auditItems) {
@@ -125,6 +161,7 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
       if (mounted) {
         setState(() {
           _users = users;
+          _roleDefinitions = roleDefinitions;
           _recentPinResets
             ..clear()
             ..addAll(recentPinResets);
@@ -133,6 +170,21 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
       }
     } catch (_) {
       if (mounted) setState(() => _loadingUsers = false);
+    }
+  }
+
+  Future<void> _loadClaimPeople() async {
+    setState(() => _loadingBackfillPeople = true);
+    try {
+      final people = await context.read<AppState>().api.getClaimPeople();
+      if (!mounted) return;
+      setState(() {
+        _claimPeople = people;
+        _loadingBackfillPeople = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingBackfillPeople = false);
     }
   }
 
@@ -197,15 +249,219 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
   }
 
   Future<void> _setUserRole(int userId, String role) async {
-    final permissions = role == 'assistant_admin'
-        ? const ['admin_settings', 'edit_map']
-        : const <String>[];
     await context.read<AppState>().api.updateUserRole(
       userId,
       role,
-      permissions: permissions,
     );
-    if (mounted) await _loadUsers();
+    if (!mounted) return;
+    _showSnack('Role updated');
+    await _loadUsers();
+  }
+
+  void _ensureBackfillTracker(AppState state) {
+    final trackers = state.trackers.where((tracker) => tracker.isActive).toList();
+    if (trackers.isEmpty) {
+      return;
+    }
+    final hasCurrent = trackers.any((tracker) => tracker.id == _backfillTrackerId);
+    final nextTrackerId = hasCurrent
+        ? _backfillTrackerId
+        : (state.currentTracker?.id ?? trackers.first.id);
+    if (nextTrackerId == null || nextTrackerId == _backfillTrackerId) {
+      return;
+    }
+    _backfillTrackerId = nextTrackerId;
+    _loadBackfillBlocks(nextTrackerId);
+  }
+
+  Future<void> _loadBackfillBlocks(int trackerId) async {
+    setState(() {
+      _loadingBackfillBlocks = true;
+      _backfillBlockId = null;
+      _backfillAssignments = const {};
+    });
+    try {
+      final blocks = await context.read<AppState>().api.getPowerBlocks(trackerId);
+      blocks.sort((left, right) => left.powerBlockNumber.compareTo(right.powerBlockNumber));
+      if (!mounted) return;
+      setState(() {
+        _backfillBlocks = blocks;
+        _loadingBackfillBlocks = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _backfillBlocks = [];
+        _loadingBackfillBlocks = false;
+      });
+    }
+  }
+
+  Tracker? _selectedBackfillTracker(AppState state) {
+    for (final tracker in state.trackers) {
+      if (tracker.id == _backfillTrackerId) {
+        return tracker;
+      }
+    }
+    return null;
+  }
+
+  PowerBlock? _selectedBackfillBlock() {
+    for (final block in _backfillBlocks) {
+      if (block.id == _backfillBlockId) {
+        return block;
+      }
+    }
+    return null;
+  }
+
+  String _roleLabel(String role) {
+    for (final roleDefinition in _roleDefinitions) {
+      if (roleDefinition['key']?.toString() == role) {
+        return roleDefinition['label']?.toString() ?? role;
+      }
+    }
+    switch (role) {
+      case 'assistant_admin':
+        return 'Asst. Admin';
+      case 'user':
+        return 'Worker';
+      default:
+        return role.replaceAll('_', ' ');
+    }
+  }
+
+  String _statusName(Tracker? tracker, String statusType) {
+    return tracker?.statusNames[statusType] ?? statusType;
+  }
+
+  Color _statusColor(Tracker? tracker, String statusType) {
+    return _hexColor(tracker?.statusColors[statusType] ?? '#00D4FF');
+  }
+
+  String _lbdLabel(LbdItem lbd) {
+    final identifier = lbd.identifier?.trim();
+    if (identifier != null && identifier.isNotEmpty) return identifier;
+    final name = lbd.name?.trim();
+    if (name != null && name.isNotEmpty) return name;
+    return 'LBD ${lbd.id}';
+  }
+
+  String _formatIsoDate(String isoDate) {
+    final parsed = DateTime.tryParse(isoDate);
+    if (parsed == null) return isoDate;
+    const monthNames = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${monthNames[parsed.month - 1]} ${parsed.day}, ${parsed.year}';
+  }
+
+  List<String> _resolvedBackfillPeople() {
+    final merged = <String>[];
+    final seen = <String>{};
+    final extras = _backfillExtraPeopleController.text
+        .split(RegExp(r'[\n,]'))
+        .map((entry) => entry.trim())
+        .where((entry) => entry.isNotEmpty);
+    for (final name in [..._backfillCrew, ...extras]) {
+      final key = name.toLowerCase();
+      if (!seen.add(key)) continue;
+      merged.add(name);
+    }
+    return merged;
+  }
+
+  Future<void> _pickBackfillDate() async {
+    final initialDate = DateTime.tryParse(_backfillDate) ?? DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(2024, 1, 1),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (picked == null || !mounted) return;
+    final month = picked.month.toString().padLeft(2, '0');
+    final day = picked.day.toString().padLeft(2, '0');
+    setState(() => _backfillDate = '${picked.year}-$month-$day');
+  }
+
+  void _toggleBackfillLbd(String statusType, int lbdId, bool isSelected) {
+    final updated = Map<String, List<int>>.from(_backfillAssignments);
+    final currentIds = List<int>.from(updated[statusType] ?? const <int>[]);
+    if (isSelected) {
+      if (!currentIds.contains(lbdId)) {
+        currentIds.add(lbdId);
+      }
+      currentIds.sort();
+      updated[statusType] = currentIds;
+    } else {
+      currentIds.remove(lbdId);
+      if (currentIds.isEmpty) {
+        updated.remove(statusType);
+      } else {
+        updated[statusType] = currentIds;
+      }
+    }
+    setState(() => _backfillAssignments = updated);
+  }
+
+  void _replaceBackfillTaskSelection(String statusType, List<int> ids) {
+    final updated = Map<String, List<int>>.from(_backfillAssignments);
+    if (ids.isEmpty) {
+      updated.remove(statusType);
+    } else {
+      updated[statusType] = [...ids]..sort();
+    }
+    setState(() => _backfillAssignments = updated);
+  }
+
+  Future<void> _submitBackfill(AppState state) async {
+    final tracker = _selectedBackfillTracker(state);
+    final block = _selectedBackfillBlock();
+    final people = _resolvedBackfillPeople();
+    if (tracker == null) {
+      _showSnack('Choose a tracker first.');
+      return;
+    }
+    if (block == null) {
+      _showSnack('Choose a power block first.');
+      return;
+    }
+    if (people.isEmpty) {
+      _showSnack('Select at least one crew member.');
+      return;
+    }
+    if (_backfillAssignments.isEmpty) {
+      _showSnack('Select at least one task and LBD.');
+      return;
+    }
+
+    setState(() => _savingBackfill = true);
+    try {
+      await state.api.backfillClaimActivity(
+        blockId: block.id,
+        trackerId: tracker.id,
+        people: people,
+        assignments: _backfillAssignments,
+        workDate: _backfillDate,
+        claimedBy: state.user?.name,
+      );
+      if (!mounted) return;
+      setState(() {
+        _backfillBlockId = null;
+        _backfillAssignments = const {};
+        _backfillCrew.clear();
+        _backfillExtraPeopleController.clear();
+      });
+      _showSnack('Claim activity backfilled for ${block.name} on ${_formatIsoDate(_backfillDate)}');
+    } on Exception catch (e) {
+      _showSnack(e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) {
+        setState(() => _savingBackfill = false);
+      }
+    }
   }
 
   Future<void> _resetUserPin(int userId, String name) async {
@@ -562,6 +818,7 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
               _buildNamesTab(state),
               _buildMapLabelsTab(),
               if (role == 'admin') _buildUsersTab(),
+              if (role == 'admin') _buildBackfillTab(state),
             ],
           ),
         ),
@@ -585,8 +842,422 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
           const Tab(text: 'Names'),
           const Tab(text: 'Map Labels'),
           if (isMainAdmin) const Tab(text: 'Users'),
+          if (isMainAdmin) const Tab(text: 'Claims'),
         ],
       ),
+    );
+  }
+
+  // ── Claim Backfill Tab ───────────────────────────────
+
+  Widget _buildBackfillTab(AppState state) {
+    final tracker = _selectedBackfillTracker(state);
+    final block = _selectedBackfillBlock();
+    final liveAssignments = block?.visibleClaimAssignments ?? const <String, List<int>>{};
+    final activeTrackers = state.trackers.where((entry) => entry.isActive).toList()
+      ..sort((left, right) => left.displayName.compareTo(right.displayName));
+
+    return Column(
+      children: [
+        Expanded(
+          child: RefreshIndicator(
+            color: C.cyan,
+            onRefresh: () async {
+              await _loadClaimPeople();
+              if (_backfillTrackerId != null) {
+                await _loadBackfillBlocks(_backfillTrackerId!);
+              }
+            },
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 112),
+              children: [
+          GlassCard(
+            padding: const EdgeInsets.all(18),
+            glowColor: C.gold,
+            glowBlur: 16,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Historical Claim Backfill',
+                    style: AppTheme.font(size: 16, weight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                Text(
+                  'Use this only for older claims that need to appear in past-day reports without changing the live claim state on the tracker.',
+                  style: AppTheme.font(size: 12, color: C.textSub),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          GlassCard(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Tracker', style: AppTheme.font(size: 13, weight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<int>(
+                  value: _backfillTrackerId,
+                  isExpanded: true,
+                  dropdownColor: C.surface,
+                  style: AppTheme.font(size: 13),
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: const Color(0x10FFFFFF),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0x18FFFFFF)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0x18FFFFFF)),
+                    ),
+                  ),
+                  items: activeTrackers
+                      .map((entry) => DropdownMenuItem<int>(
+                            value: entry.id,
+                            child: Text(entry.displayName, style: AppTheme.font(size: 13)),
+                          ))
+                      .toList(),
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setState(() {
+                      _backfillTrackerId = value;
+                      _backfillBlockId = null;
+                      _backfillAssignments = const {};
+                    });
+                    _loadBackfillBlocks(value);
+                  },
+                ),
+                const SizedBox(height: 14),
+                Text('Claim Date', style: AppTheme.font(size: 13, weight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _pickBackfillDate,
+                    icon: const Icon(Icons.calendar_today_rounded, size: 18),
+                    label: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(_formatIsoDate(_backfillDate), style: AppTheme.font(size: 13)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text('Power Block', style: AppTheme.font(size: 13, weight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                if (_loadingBackfillBlocks)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Center(child: CircularProgressIndicator(color: C.cyan, strokeWidth: 2)),
+                  )
+                else if (_backfillBlocks.isEmpty)
+                  Text('No blocks loaded for this tracker yet.',
+                      style: AppTheme.font(size: 12, color: C.textDim))
+                else
+                  DropdownButtonFormField<int>(
+                    value: _backfillBlockId,
+                    isExpanded: true,
+                    dropdownColor: C.surface,
+                    style: AppTheme.font(size: 13),
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: const Color(0x10FFFFFF),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(color: Color(0x18FFFFFF)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(color: Color(0x18FFFFFF)),
+                      ),
+                    ),
+                    items: _backfillBlocks
+                        .map((entry) => DropdownMenuItem<int>(
+                              value: entry.id,
+                              child: Text(
+                                '#${entry.powerBlockNumber} • ${entry.name}',
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTheme.font(size: 13),
+                              ),
+                            ))
+                        .toList(),
+                    onChanged: (value) {
+                      setState(() {
+                        _backfillBlockId = value;
+                        _backfillAssignments = const {};
+                      });
+                    },
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          GlassCard(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Crew', style: AppTheme.font(size: 13, weight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                if (_loadingBackfillPeople)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Center(child: CircularProgressIndicator(color: C.cyan, strokeWidth: 2)),
+                  )
+                else if (_claimPeople.isEmpty)
+                  Text('No saved crew names yet. Add names below.',
+                      style: AppTheme.font(size: 12, color: C.textDim))
+                else
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _claimPeople.map((name) {
+                      final isSelected = _backfillCrew.contains(name);
+                      return FilterChip(
+                        selected: isSelected,
+                        label: Text(name, style: AppTheme.font(size: 12)),
+                        onSelected: (selected) {
+                          setState(() {
+                            if (selected) {
+                              _backfillCrew.add(name);
+                            } else {
+                              _backfillCrew.remove(name);
+                            }
+                          });
+                        },
+                        selectedColor: C.cyan.withValues(alpha: 0.18),
+                        backgroundColor: const Color(0x0AFFFFFF),
+                        checkmarkColor: C.cyan,
+                        side: BorderSide(
+                          color: isSelected ? C.cyan : const Color(0x18FFFFFF),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _backfillExtraPeopleController,
+                  minLines: 2,
+                  maxLines: 4,
+                  style: AppTheme.font(size: 13),
+                  decoration: InputDecoration(
+                    labelText: 'Extra names',
+                    hintText: 'Comma or new-line separated',
+                    labelStyle: AppTheme.font(size: 12, color: C.textSub),
+                    hintStyle: AppTheme.font(size: 12, color: C.textDim),
+                    filled: true,
+                    fillColor: const Color(0x10FFFFFF),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0x18FFFFFF)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: Color(0x18FFFFFF)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          GlassCard(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Assignments', style: AppTheme.font(size: 13, weight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                if (tracker == null)
+                  Text('Choose a tracker to start assigning work.',
+                      style: AppTheme.font(size: 12, color: C.textDim))
+                else if (block == null)
+                  Text('Choose a power block to select tasks and LBDs.',
+                      style: AppTheme.font(size: 12, color: C.textDim))
+                else ...[
+                  if (block.isClaimed) ...[
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: C.gold.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: C.gold.withValues(alpha: 0.24)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Current Live Claim',
+                            style: AppTheme.font(size: 12, weight: FontWeight.w700, color: C.gold),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            block.claimedLabel != null && block.claimedLabel!.trim().isNotEmpty
+                                ? 'Crew: ${block.claimedLabel}'
+                                : 'This block already has live claim assignments.',
+                            style: AppTheme.font(size: 12, color: C.text),
+                          ),
+                          if (liveAssignments.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            ...liveAssignments.entries.map((entry) => Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Text(
+                                '${_statusName(tracker, entry.key)}: ${entry.value.length} already claimed',
+                                style: AppTheme.font(size: 11, color: C.textSub),
+                              ),
+                            )),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                  Text(
+                    '${block.name} • ${block.lbdCount} ${tracker.itemNamePlural.toLowerCase()}',
+                    style: AppTheme.font(size: 12, color: C.textSub),
+                  ),
+                  const SizedBox(height: 12),
+                  ...tracker.statusTypes.map((statusType) {
+                    final selectedIds = _backfillAssignments[statusType] ?? const <int>[];
+                    final liveClaimedIds = Set<int>.from(liveAssignments[statusType] ?? const <int>[]);
+                    final taskColor = _statusColor(tracker, statusType);
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: taskColor.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: taskColor.withValues(alpha: 0.22)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  _statusName(tracker, statusType),
+                                  style: AppTheme.font(size: 13, weight: FontWeight.w700, color: taskColor),
+                                ),
+                              ),
+                              Text(
+                                '${selectedIds.length} selected',
+                                style: AppTheme.font(size: 11, weight: FontWeight.w700, color: taskColor),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              OutlinedButton.icon(
+                                onPressed: () => _replaceBackfillTaskSelection(
+                                  statusType,
+                                  block.lbds.map((entry) => entry.id).toList(),
+                                ),
+                                icon: const Icon(Icons.select_all_rounded, size: 16),
+                                label: const Text('Select All'),
+                              ),
+                              TextButton.icon(
+                                onPressed: selectedIds.isEmpty
+                                    ? null
+                                    : () => _replaceBackfillTaskSelection(statusType, const []),
+                                icon: const Icon(Icons.clear_rounded, size: 16),
+                                label: const Text('Clear'),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxHeight: 220),
+                            child: ListView.builder(
+                              shrinkWrap: true,
+                              itemCount: block.lbds.length,
+                              itemBuilder: (context, index) {
+                                final lbd = block.lbds[index];
+                                final isSelected = selectedIds.contains(lbd.id);
+                                final isLiveClaimed = liveClaimedIds.contains(lbd.id);
+                                return CheckboxListTile(
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  controlAffinity: ListTileControlAffinity.leading,
+                                  activeColor: taskColor,
+                                  value: isSelected,
+                                  title: Text(_lbdLabel(lbd), style: AppTheme.font(size: 12)),
+                                  subtitle: (() {
+                                    final parts = <String>[];
+                                    if ((lbd.name ?? '').trim().isNotEmpty && (lbd.name ?? '').trim() != _lbdLabel(lbd)) {
+                                      parts.add(lbd.name!.trim());
+                                    }
+                                    if (isLiveClaimed) {
+                                      parts.add('Already claimed live');
+                                    }
+                                    if (parts.isEmpty) return null;
+                                    return Text(
+                                      parts.join(' • '),
+                                      style: AppTheme.font(
+                                        size: 11,
+                                        color: isLiveClaimed ? C.gold : C.textDim,
+                                      ),
+                                    );
+                                  })(),
+                                  onChanged: (value) => _toggleBackfillLbd(statusType, lbd.id, value ?? false),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            child: SafeArea(
+              top: false,
+              minimum: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+              child: GlassCard(
+                padding: const EdgeInsets.all(12),
+                borderRadius: 16,
+                glowColor: C.cyan,
+                glowBlur: 12,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      block == null
+                          ? 'Choose a tracker and power block, then save the historical claim here.'
+                          : 'Ready to save ${block.name} for ${_formatIsoDate(_backfillDate)}.',
+                      style: AppTheme.font(size: 12, color: C.textSub),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      height: 48,
+                      width: double.infinity,
+                      child: NeonButton(
+                        label: 'SAVE HISTORICAL CLAIM',
+                        icon: Icons.history_toggle_off_rounded,
+                        loading: _savingBackfill,
+                        onPressed: _savingBackfill ? null : () => _submitBackfill(state),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -974,11 +1645,10 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
       );
     }
 
-    const roleOptions = ['user', 'assistant_admin'];
-    const roleLabels = {
-      'user': 'Worker',
-      'assistant_admin': 'Asst. Admin',
-    };
+    final roleOptions = _roleDefinitions
+        .map((entry) => entry['key']?.toString() ?? '')
+        .where((entry) => entry.isNotEmpty)
+        .toList();
 
     return Stack(
       children: [
@@ -994,8 +1664,7 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
               final name = user['name']?.toString() ?? 'User $userId';
               final currentRole = user['role']?.toString() ?? 'user';
               final isMainAdmin = user['username']?.toString() == 'admin';
-              final safeRole =
-                  roleOptions.contains(currentRole) ? currentRole : 'user';
+                final safeRole = roleOptions.contains(currentRole) ? currentRole : null;
               final pinResetLabel = _formatPinResetLabel(_recentPinResets[userId]);
 
               return Container(
@@ -1035,13 +1704,13 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
                                     style: AppTheme.font(
                                         size: 14, weight: FontWeight.w600)),
                                 Text(
-                                  roleLabels[currentRole] ?? currentRole,
+                                  _roleLabel(currentRole),
                                   style: AppTheme.font(size: 11, color: C.textDim),
                                 ),
                               ],
                             ),
                           ),
-                          if (!isMainAdmin)
+                          if (!isMainAdmin && roleOptions.isNotEmpty)
                             DropdownButton<String>(
                               value: safeRole,
                               dropdownColor: C.surface,
@@ -1052,7 +1721,7 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
                               items: roleOptions
                                   .map((r) => DropdownMenuItem(
                                         value: r,
-                                        child: Text(roleLabels[r] ?? r,
+                                    child: Text(_roleLabel(r),
                                             style: AppTheme.font(size: 12)),
                                       ))
                                   .toList(),

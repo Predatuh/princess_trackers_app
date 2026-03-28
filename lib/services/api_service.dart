@@ -132,7 +132,12 @@ class ApiService {
 
   Map<String, dynamic> _decodeJsonResponse(http.Response res, String operation) {
     if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw Exception('$operation failed (${res.statusCode})');
+      final body = _tryDecodeBody(res);
+      throw Exception(
+        body['error']?.toString() ??
+            body['message']?.toString() ??
+            '$operation failed (${res.statusCode})',
+      );
     }
     if (res.body.isEmpty) {
       throw Exception('$operation returned an empty response');
@@ -338,6 +343,31 @@ class ApiService {
     return _decodeJsonResponse(res, 'Submit claim scan')['data'];
   }
 
+  Future<Map<String, dynamic>> backfillClaimActivity({
+    required int blockId,
+    required List<String> people,
+    required Map<String, List<int>> assignments,
+    required String workDate,
+    int? trackerId,
+    String? claimedBy,
+  }) async {
+    final body = <String, dynamic>{
+      'power_block_id': blockId,
+      'people': people,
+      'assignments': assignments,
+      'work_date': workDate,
+    };
+    if (trackerId != null) body['tracker_id'] = trackerId;
+    if (claimedBy != null && claimedBy.trim().isNotEmpty) {
+      body['claimed_by'] = claimedBy.trim();
+    }
+    final res = await _post(
+      '/api/reports/claim-activities/backfill',
+      body: jsonEncode(body),
+    );
+    return _decodeJsonResponse(res, 'Backfill claim activity')['data'];
+  }
+
   String? resolveMediaUrl(String? path) {
     if (path == null || path.isEmpty) return null;
     if (path.startsWith('http://') || path.startsWith('https://')) {
@@ -404,6 +434,26 @@ class ApiService {
     final res = await _get('/api/reports?tracker_id=$trackerId');
     final j = jsonDecode(res.body);
     return (j['data'] as List).map((r) => DailyReport.fromJson(r)).toList();
+  }
+
+  Future<DailyReport?> getReportByDate(
+    String date, {
+    int? trackerId,
+    bool ensure = false,
+  }) async {
+    final suffix = StringBuffer();
+    if (trackerId != null) {
+      suffix.write('?tracker_id=$trackerId');
+      if (ensure) suffix.write('&ensure=1');
+    } else if (ensure) {
+      suffix.write('?ensure=1');
+    }
+    final res = await _get('/api/reports/date/$date${suffix.toString()}');
+    final data = _decodeJsonResponse(res, 'Load dated report')['data'];
+    if (data == null) {
+      return null;
+    }
+    return DailyReport.fromJson(Map<String, dynamic>.from(data as Map));
   }
 
   // ── Map ─────────────────────────────────────────────
@@ -569,12 +619,14 @@ class ApiService {
     return null;
   }
 
-  Future<List<dynamic>> getUsers() async {
+  Future<Map<String, dynamic>> getUsersPayload() async {
     final res = await _get('/api/auth/users');
-    if (res.statusCode == 200) {
-      return (jsonDecode(res.body)['users'] as List?) ?? [];
-    }
-    return [];
+    return _decodeJsonResponse(res, 'Load users');
+  }
+
+  Future<List<dynamic>> getUsers() async {
+    final payload = await getUsersPayload();
+    return (payload['users'] as List?) ?? [];
   }
 
   Future<List<dynamic>> getAuditLogs({int limit = 250}) async {
