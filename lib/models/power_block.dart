@@ -87,6 +87,45 @@ class PowerBlock {
     return filtered;
   }
 
+  Map<String, List<int>> get completedStatusAssignments {
+    if (lbds.isEmpty) return const {};
+    final completed = <String, Set<int>>{};
+    for (final lbd in lbds) {
+      for (final status in lbd.statuses) {
+        if (!status.isCompleted || status.statusType.trim().isEmpty) {
+          continue;
+        }
+        completed.putIfAbsent(status.statusType, () => <int>{}).add(lbd.id);
+      }
+    }
+    return {
+      for (final entry in completed.entries)
+        entry.key: entry.value.toList()..sort(),
+    };
+  }
+
+  Map<String, List<int>> get effectiveVisibleClaimAssignments {
+    final merged = <String, Set<int>>{};
+
+    void merge(Map<String, List<int>> source) {
+      source.forEach((statusType, ids) {
+        final normalizedIds = ids.where((id) => id > 0).toSet();
+        if (normalizedIds.isEmpty) {
+          return;
+        }
+        merged.putIfAbsent(statusType, () => <int>{}).addAll(normalizedIds);
+      });
+    }
+
+    merge(visibleClaimAssignments);
+    merge(completedStatusAssignments);
+
+    return {
+      for (final entry in merged.entries)
+        entry.key: entry.value.toList()..sort(),
+    };
+  }
+
   bool get isClaimed => visibleClaimAssignments.isNotEmpty;
 
   int get claimedLbdCount {
