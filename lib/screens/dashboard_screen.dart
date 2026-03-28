@@ -112,6 +112,22 @@ class _TrackerHubCard extends StatelessWidget {
     required this.onTap,
   });
 
+  bool _usesPowerBlockCompletion(dynamic tracker) {
+    return (tracker.slug ?? '').toString() == 'inverter-dc';
+  }
+
+  bool _isBlockComplete(PowerBlock block, List<String> statusTypes) {
+    if (block.lbdCount <= 0 || statusTypes.isEmpty) {
+      return false;
+    }
+    for (final statusType in statusTypes) {
+      if ((block.lbdSummary[statusType] ?? 0) < block.lbdCount) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   @override
   Widget build(BuildContext context) {
     final totalBlocks = blocks.length;
@@ -137,11 +153,25 @@ class _TrackerHubCard extends StatelessWidget {
       }
       completedCounts[st] = count;
     }
-    // Termed count — from lbdSummary 'term' key (matches web dashboard logic)
-    final termedCount = blocks.fold<int>(
-        0, (sum, b) => sum + (b.lbdSummary['term'] ?? 0));
-    final statLabel = (tracker.statLabel as String?) ?? 'Termed';
-    final pct = totalItems > 0 ? termedCount / totalItems : 0.0;
+    final usesPowerBlockCompletion = _usesPowerBlockCompletion(tracker);
+    final completedBlockCount = usesPowerBlockCompletion
+      ? blocks.where((block) => _isBlockComplete(block, statusTypes)).length
+      : 0;
+    // Default trackers use item-based progress from the final completion status.
+    final finalStatusType = statusTypes.isNotEmpty ? statusTypes.last : 'term';
+    final completedItemCount = blocks.fold<int>(
+      0,
+      (sum, block) => sum + (block.lbdSummary[finalStatusType] ?? 0),
+    );
+    final statValue = usesPowerBlockCompletion
+      ? '$completedBlockCount/$totalBlocks'
+      : '$completedItemCount';
+    final statLabel = usesPowerBlockCompletion
+      ? 'PBs Completed'
+      : ((tracker.statLabel as String?) ?? 'Completed');
+    final pct = usesPowerBlockCompletion
+      ? (totalBlocks > 0 ? completedBlockCount / totalBlocks : 0.0)
+      : (totalItems > 0 ? completedItemCount / totalItems : 0.0);
     final barColor = pct >= 1.0
         ? C.green
         : pct >= 0.5
@@ -228,7 +258,7 @@ class _TrackerHubCard extends StatelessWidget {
                     color: C.cyan),
                 const SizedBox(width: 8),
                 _StatPill(
-                    value: '$termedCount',
+                    value: statValue,
                   label: statLabel,
                     color: C.green),
                 const SizedBox(width: 8),
