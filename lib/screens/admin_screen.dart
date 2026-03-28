@@ -447,14 +447,19 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
         workDate: _backfillDate,
         claimedBy: state.user?.name,
       );
+      await state.loadBlocks(trackerId: tracker.id, showLoading: false);
+      final refreshedBlock = await state.api.getPowerBlock(block.id, trackerId: tracker.id);
       if (!mounted) return;
       setState(() {
-        _backfillBlockId = null;
+        _backfillBlocks = _backfillBlocks
+            .map((entry) => entry.id == refreshedBlock.id ? refreshedBlock : entry)
+            .toList();
+        _backfillBlockId = refreshedBlock.id;
         _backfillAssignments = const {};
         _backfillCrew.clear();
         _backfillExtraPeopleController.clear();
       });
-      _showSnack('Claim activity backfilled for ${block.name} on ${_formatIsoDate(_backfillDate)}');
+      _showSnack('Historical claim saved for ${block.name} on ${_formatIsoDate(_backfillDate)} and applied to the live tracker.');
     } on Exception catch (e) {
       _showSnack(e.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -882,7 +887,7 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
                     style: AppTheme.font(size: 16, weight: FontWeight.w700)),
                 const SizedBox(height: 8),
                 Text(
-                  'Use this only for older claims that need to appear in past-day reports without changing the live claim state on the tracker.',
+                  'Use this for late-entered claims that should land on the correct past date and also update the live tracker, map, and block progress today.',
                   style: AppTheme.font(size: 12, color: C.textSub),
                 ),
               ],
