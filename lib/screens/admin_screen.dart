@@ -858,7 +858,9 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
   Widget _buildBackfillTab(AppState state) {
     final tracker = _selectedBackfillTracker(state);
     final block = _selectedBackfillBlock();
-    final liveAssignments = block?.effectiveVisibleClaimAssignments ?? const <String, List<int>>{};
+    final liveAssignments = block == null || tracker == null
+      ? const <String, List<int>>{}
+      : block.effectiveVisibleClaimAssignmentsFor(tracker.statusTypes);
     final activeTrackers = state.trackers.where((entry) => entry.isActive).toList()
       ..sort((left, right) => left.displayName.compareTo(right.displayName));
 

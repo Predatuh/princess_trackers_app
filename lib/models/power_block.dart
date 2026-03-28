@@ -104,6 +104,32 @@ class PowerBlock {
     };
   }
 
+  Map<String, List<int>> _filterAssignmentsByStatusTypes(
+    Map<String, List<int>> source,
+    Iterable<String> allowedStatusTypes,
+  ) {
+    final allowed = allowedStatusTypes
+        .map((statusType) => statusType.trim())
+        .where((statusType) => statusType.isNotEmpty)
+        .toSet();
+    if (allowed.isEmpty) {
+      return source;
+    }
+    return {
+      for (final entry in source.entries)
+        if (allowed.contains(entry.key)) entry.key: entry.value,
+    };
+  }
+
+  Map<String, List<int>> completedStatusAssignmentsFor(
+    Iterable<String> allowedStatusTypes,
+  ) {
+    return _filterAssignmentsByStatusTypes(
+      completedStatusAssignments,
+      allowedStatusTypes,
+    );
+  }
+
   Map<String, List<int>> get effectiveVisibleClaimAssignments {
     final merged = <String, Set<int>>{};
 
@@ -119,6 +145,30 @@ class PowerBlock {
 
     merge(visibleClaimAssignments);
     merge(completedStatusAssignments);
+
+    return {
+      for (final entry in merged.entries)
+        entry.key: entry.value.toList()..sort(),
+    };
+  }
+
+  Map<String, List<int>> effectiveVisibleClaimAssignmentsFor(
+    Iterable<String> allowedStatusTypes,
+  ) {
+    final merged = <String, Set<int>>{};
+
+    void merge(Map<String, List<int>> source) {
+      source.forEach((statusType, ids) {
+        final normalizedIds = ids.where((id) => id > 0).toSet();
+        if (normalizedIds.isEmpty) {
+          return;
+        }
+        merged.putIfAbsent(statusType, () => <int>{}).addAll(normalizedIds);
+      });
+    }
+
+    merge(_filterAssignmentsByStatusTypes(visibleClaimAssignments, allowedStatusTypes));
+    merge(completedStatusAssignmentsFor(allowedStatusTypes));
 
     return {
       for (final entry in merged.entries)
