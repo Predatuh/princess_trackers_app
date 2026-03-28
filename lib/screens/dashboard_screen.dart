@@ -128,6 +128,13 @@ class _TrackerHubCard extends StatelessWidget {
     return true;
   }
 
+  bool _isBlockCompleteForStatus(PowerBlock block, String statusType) {
+    if (block.lbdCount <= 0) {
+      return false;
+    }
+    return (block.lbdSummary[statusType] ?? 0) >= block.lbdCount;
+  }
+
   @override
   Widget build(BuildContext context) {
     final totalBlocks = blocks.length;
@@ -142,6 +149,7 @@ class _TrackerHubCard extends StatelessWidget {
         Map<String, String>.from(settings['names'] ?? tracker.statusNames);
 
     final Map<String, int> completedCounts = {};
+    final Map<String, int> completedBlockCounts = {};
     for (final st in statusTypes) {
       int count = 0;
       for (final b in blocks) {
@@ -152,6 +160,9 @@ class _TrackerHubCard extends StatelessWidget {
         }
       }
       completedCounts[st] = count;
+      completedBlockCounts[st] = blocks
+          .where((block) => _isBlockCompleteForStatus(block, st))
+          .length;
     }
     final usesPowerBlockCompletion = _usesPowerBlockCompletion(tracker);
     final completedBlockCount = usesPowerBlockCompletion
@@ -316,8 +327,10 @@ class _TrackerHubCard extends StatelessWidget {
               if (i > 0) const SizedBox(height: 8),
               _StatusMiniRow(
                 name: statusNames[statusTypes[i]] ?? statusTypes[i],
-                done: completedCounts[statusTypes[i]] ?? 0,
-                total: totalItems,
+                done: usesPowerBlockCompletion
+                    ? (completedBlockCounts[statusTypes[i]] ?? 0)
+                    : (completedCounts[statusTypes[i]] ?? 0),
+                total: usesPowerBlockCompletion ? totalBlocks : totalItems,
                 color: _colorFromHex(
                     statusColors[statusTypes[i]] ?? '#888888'),
               ),
