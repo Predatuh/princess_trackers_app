@@ -1211,6 +1211,9 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
     int totalTaskParts, {
     required bool canClaimFromHere,
   }) {
+    final persistedAssignments = _persistedAssignmentsForTasks(
+      state.currentTracker?.statusTypes ?? const <String>[],
+    );
     final accentColor = pct >= 1.0 ? C.green : (pct > 0 ? C.gold : C.cyan);
     return GlassCard(
       padding: const EdgeInsets.all(20),
