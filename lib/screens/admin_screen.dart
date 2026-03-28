@@ -1122,6 +1122,10 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
                   ...tracker.statusTypes.map((statusType) {
                     final selectedIds = _backfillAssignments[statusType] ?? const <int>[];
                     final liveClaimedIds = Set<int>.from(liveAssignments[statusType] ?? const <int>[]);
+                    final availableIds = block.lbds
+                        .map((entry) => entry.id)
+                        .where((id) => !liveClaimedIds.contains(id) || selectedIds.contains(id))
+                        .toList();
                     final taskColor = _statusColor(tracker, statusType);
                     return Container(
                       margin: const EdgeInsets.only(bottom: 12),
@@ -1143,7 +1147,9 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
                                 ),
                               ),
                               Text(
-                                '${selectedIds.length} selected',
+                                liveClaimedIds.isEmpty
+                                    ? '${selectedIds.length} selected'
+                                    : '${selectedIds.length} selected • ${liveClaimedIds.length} already claimed',
                                 style: AppTheme.font(size: 11, weight: FontWeight.w700, color: taskColor),
                               ),
                             ],
@@ -1154,10 +1160,12 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
                             runSpacing: 8,
                             children: [
                               OutlinedButton.icon(
-                                onPressed: () => _replaceBackfillTaskSelection(
-                                  statusType,
-                                  block.lbds.map((entry) => entry.id).toList(),
-                                ),
+                                onPressed: availableIds.isEmpty
+                                    ? null
+                                    : () => _replaceBackfillTaskSelection(
+                                          statusType,
+                                          availableIds,
+                                        ),
                                 icon: const Icon(Icons.select_all_rounded, size: 16),
                                 label: const Text('Select All'),
                               ),
@@ -1180,20 +1188,24 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
                                 final lbd = block.lbds[index];
                                 final isSelected = selectedIds.contains(lbd.id);
                                 final isLiveClaimed = liveClaimedIds.contains(lbd.id);
+                                final isUnavailable = isLiveClaimed && !isSelected;
                                 return CheckboxListTile(
                                   dense: true,
                                   contentPadding: EdgeInsets.zero,
                                   controlAffinity: ListTileControlAffinity.leading,
                                   activeColor: taskColor,
                                   value: isSelected,
-                                  title: Text(_lbdLabel(lbd), style: AppTheme.font(size: 12)),
+                                  title: Text(
+                                    _lbdLabel(lbd),
+                                    style: AppTheme.font(size: 12, color: isUnavailable ? C.textDim : C.text),
+                                  ),
                                   subtitle: (() {
                                     final parts = <String>[];
                                     if ((lbd.name ?? '').trim().isNotEmpty && (lbd.name ?? '').trim() != _lbdLabel(lbd)) {
                                       parts.add(lbd.name!.trim());
                                     }
                                     if (isLiveClaimed) {
-                                      parts.add('Already claimed live');
+                                      parts.add('Already claimed');
                                     }
                                     if (parts.isEmpty) return null;
                                     return Text(
@@ -1204,7 +1216,9 @@ class _AdminTabState extends State<AdminTab> with TickerProviderStateMixin {
                                       ),
                                     );
                                   })(),
-                                  onChanged: (value) => _toggleBackfillLbd(statusType, lbd.id, value ?? false),
+                                  onChanged: isUnavailable
+                                      ? null
+                                      : (value) => _toggleBackfillLbd(statusType, lbd.id, value ?? false),
                                 );
                               },
                             ),
