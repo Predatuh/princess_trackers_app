@@ -83,6 +83,54 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
     return normalized;
   }
 
+  Map<String, List<int>> _completedAssignmentsForTasks(List<String> taskTypes) {
+    if (taskTypes.isEmpty || block.lbds.isEmpty) {
+      return const {};
+    }
+
+    final completed = <String, List<int>>{};
+    for (final statusType in taskTypes) {
+      final ids = block.lbds
+          .where((lbd) => lbd.statuses.any(
+                (status) => status.statusType == statusType && status.isCompleted,
+              ))
+          .map((lbd) => lbd.id)
+          .where((id) => id > 0)
+          .toSet()
+          .toList()
+        ..sort();
+      if (ids.isNotEmpty) {
+        completed[statusType] = ids;
+      }
+    }
+    return completed;
+  }
+
+  Map<String, List<int>> _claimedAssignmentsForTasks(List<String> taskTypes) {
+    final merged = <String, Set<int>>{};
+
+    void mergeAssignments(Map<String, List<int>> source) {
+      source.forEach((statusType, ids) {
+        if (taskTypes.isNotEmpty && !taskTypes.contains(statusType)) {
+          return;
+        }
+        final normalizedIds = ids.where((id) => id > 0).toSet();
+        if (normalizedIds.isEmpty) {
+          return;
+        }
+        merged.putIfAbsent(statusType, () => <int>{}).addAll(normalizedIds);
+      });
+    }
+
+    mergeAssignments(_persistedAssignmentsForTasks(taskTypes));
+    mergeAssignments(_completedAssignmentsForTasks(taskTypes));
+
+    return {
+      for (final entry in merged.entries)
+        entry.key: entry.value.toList()..sort(),
+    };
+  }
+
   String _selectionSummary(AppState state, String statusType, Map<String, List<int>> assignments) {
     final ids = assignments[statusType] ?? const [];
     if (ids.isEmpty) return 'None selected';
@@ -133,7 +181,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
   Future<void> _showClaimDialog(AppState state, {Uint8List? initialScanBytes}) async {
     final tracker = state.currentTracker;
     final availableTaskTypes = tracker?.statusTypes ?? const <String>[];
-    final persistedAssignments = _persistedAssignmentsForTasks(availableTaskTypes);
+    final claimedAssignments = _claimedAssignmentsForTasks(availableTaskTypes);
 
     // Process initial scan bytes before opening dialog
     Map<String, dynamic>? initialDraft;
@@ -466,7 +514,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
               final currentTaskName = state.getStatusName(currentTaskType);
               final currentTaskColor = state.getStatusColor(currentTaskType);
               final persistedClaimedIds = Set<int>.from(
-                persistedAssignments[currentTaskType] ?? const <int>[],
+                claimedAssignments[currentTaskType] ?? const <int>[],
               );
               final stagedClaimedIds = <int>{};
               for (final claim in _stagedClaims) {
@@ -657,7 +705,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                         'Pick the crew for this claim, choose the exact date, then select tasks and LBDs. Add Claim keeps this window open so you can stage another claim on the same block.',
                         style: AppTheme.font(size: 12, color: C.textSub),
                       ),
-                      if (persistedAssignments.isNotEmpty) ...[
+                      if (claimedAssignments.isNotEmpty) ...[
                         const SizedBox(height: 14),
                         Text('Already Claimed', style: AppTheme.font(size: 14, weight: FontWeight.w700, color: C.gold)),
                         const SizedBox(height: 8),
@@ -679,7 +727,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                                 style: AppTheme.font(size: 12, weight: FontWeight.w700, color: C.text),
                               ),
                               const SizedBox(height: 8),
-                              ...persistedAssignments.entries.map((entry) => Padding(
+                              ...claimedAssignments.entries.map((entry) => Padding(
                                 padding: const EdgeInsets.only(bottom: 6),
                                 child: Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -694,7 +742,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
-                                        _selectionSummary(state, entry.key, persistedAssignments),
+                                        _selectionSummary(state, entry.key, claimedAssignments),
                                         style: AppTheme.font(size: 12, color: C.textSub),
                                       ),
                                     ),
@@ -1101,7 +1149,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
     final state = context.watch<AppState>();
     final tracker = state.currentTracker;
     final canClaimFromHere = state.user != null && state.selectedTab == 3;
-    final persistedAssignments = _persistedAssignmentsForTasks(
+    final claimedAssignments = _claimedAssignmentsForTasks(
       tracker?.statusTypes ?? const <String>[],
     );
 
@@ -1211,7 +1259,7 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
     int totalTaskParts, {
     required bool canClaimFromHere,
   }) {
-    final persistedAssignments = _persistedAssignmentsForTasks(
+    final claimedAssignments = _claimedAssignmentsForTasks(
       state.currentTracker?.statusTypes ?? const <String>[],
     );
     final accentColor = pct >= 1.0 ? C.green : (pct > 0 ? C.gold : C.cyan);
@@ -1303,10 +1351,10 @@ class _BlockDetailScreenState extends State<BlockDetailScreen> {
                           color: C.purple),
                     ),
                   ),
-                  if (persistedAssignments.isNotEmpty) ...[
+                  if (claimedAssignments.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     Text(
-                      persistedAssignments.entries
+                      claimedAssignments.entries
                           .map((entry) => '${state.getStatusName(entry.key)}: ${entry.value.length}')
                           .join(' • '),
                       style: AppTheme.font(size: 11, color: C.textSub),
